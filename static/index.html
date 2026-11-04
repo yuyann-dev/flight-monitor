@@ -77,6 +77,19 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
   .monitor-item { flex-direction: column; align-items: flex-start; gap: 10px; }
   .monitor-price { text-align: left; }
   .form-row { flex-direction: column; align-items: flex-start; gap: 8px; }
+  /* 详情页移动端适配 */
+  #monitorDetailCard > div[style*="grid-template-columns: repeat(4"] {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+  #monitorDetailCard div[style*="border: 1px solid #eee"] {
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    gap: 10px !important;
+  }
+  #monitorDetailCard div[style*="text-align: right"] {
+    text-align: left !important;
+    margin-right: 0 !important;
+  }
 }
 </style>
 </head>
@@ -333,8 +346,7 @@ async function loadMonitors() {
 
 function formatTime(isoStr) {
   const d = new Date(isoStr);
-  // 转北京时间（UTC+8）
-  d.setHours(d.getHours() + 8);
+  // 浏览器自动处理时区，直接格式化
   return `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
 }
 
@@ -491,6 +503,7 @@ async function createMonitor() {
 async function stopMonitor(id) {
   await api('/api/monitors/' + id, {method:'DELETE'});
   toast('已停止监控');
+  backToList();
   loadMonitors();
 }
 

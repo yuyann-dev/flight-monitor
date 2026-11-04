@@ -144,7 +144,7 @@ async def list_monitors(user: User = Depends(get_current_user)):
                 "departure_date": m.departure_date_start,
                 "return_date": m.return_date_start,
                 "best_price": m.best_price_ever,
-                "last_checked": m.last_checked_at.isoformat() if m.last_checked_at else None,
+                "last_checked": m.last_checked_at.isoformat() + "Z" if m.last_checked_at else None,
                 "is_active": m.is_active,
                 "max_price": m.max_price,
             }
@@ -205,7 +205,7 @@ async def monitor_history(mid: int, user: User = Depends(get_current_user)):
         ).order_by(PriceSample.checked_at).all()
         return [
             {
-                "time": s.checked_at.isoformat(),
+                "time": s.checked_at.isoformat() + "Z",
                 "price": s.best_price,
                 "platform": s.best_platform,
             }

@@ -369,10 +369,11 @@ function backToList() {
 async function refreshDetail() {
   const btn = event.target;
   btn.disabled = true;
-  btn.textContent = '刷新中...';
+  btn.textContent = '正在抓取...';
   try {
+    await api(`/api/monitors/${currentMonitorId}/refresh`, {method: 'POST'});
     await loadDetail(currentMonitorId);
-    toast('刷新完成');
+    toast('刷新完成，已获取最新价格');
   } catch(e) {
     toast('刷新失败: ' + e.message);
   } finally {

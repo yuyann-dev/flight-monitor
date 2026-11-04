@@ -178,6 +178,10 @@ async def create_monitor(req: MonitorCreate, user: User = Depends(get_current_us
         )
         db.add(m)
         db.commit()
+        # 后台异步跑一次爬虫
+        import asyncio
+        from app.scheduler import run_single_monitor
+        asyncio.create_task(run_single_monitor(m.id))
         return {"ok": True, "id": m.id}
     finally:
         db.close()
@@ -228,6 +232,14 @@ async def monitor_latest_detail(mid: int, user: User = Depends(get_current_user)
         return {"flights": sample.flight_detail or []}
     finally:
         db.close()
+
+
+@app.post("/api/monitors/{mid}/refresh")
+async def monitor_refresh(mid: int, user: User = Depends(get_current_user)):
+    import asyncio
+    from app.scheduler import run_single_monitor
+    await run_single_monitor(mid)
+    return {"ok": True}
 
 
 # ── Crawler callback API (for GitHub Actions) ──

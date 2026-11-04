@@ -226,7 +226,10 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
     <div class="card hidden" id="monitorDetailCard">
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
         <button class="btn btn-outline btn-sm" onclick="backToList()">← 返回列表</button>
-        <button class="btn btn-danger btn-sm" id="detailStopBtn" onclick="stopMonitor(currentMonitorId)">停止监控</button>
+        <div style="display: flex; gap: 8px;">
+          <button class="btn btn-primary btn-sm" onclick="refreshDetail()">立即刷新</button>
+          <button class="btn btn-danger btn-sm" id="detailStopBtn" onclick="stopMonitor(currentMonitorId)">停止监控</button>
+        </div>
       </div>
       
       <h2 id="detailTitle" style="margin-bottom: 4px;"></h2>
@@ -361,6 +364,12 @@ function backToList() {
   document.getElementById('monitorDetailCard').classList.add('hidden');
   document.getElementById('monitorListCard').classList.remove('hidden');
   if (priceChart) { priceChart.destroy(); priceChart = null; }
+}
+
+async function refreshDetail() {
+  toast('正在刷新...');
+  await loadDetail(currentMonitorId);
+  toast('刷新完成');
 }
 
 async function loadDetail(mid) {

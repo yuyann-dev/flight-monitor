@@ -1,5 +1,5 @@
 """FastAPI main app."""
-from fastapi import FastAPI, Depends, HTTPException, Request
+from fastapi import FastAPI, Depends, HTTPException, Request, BackgroundTasks
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from app.config import settings, BASE_DIR
 from app.models import init_db, SessionLocal, Monitor, User, PriceSample
-from app.auth import request_login_code, login_with_code, verify_token
+from app.auth import create_login_code, send_code_email, login_with_code, verify_token
 from app.scheduler import start_scheduler
 
 app = FastAPI(title="Flight Monitor")
@@ -59,8 +59,9 @@ class MonitorCreate(BaseModel):
 
 # ── Auth routes ──
 @app.post("/api/auth/send-code")
-async def send_code(req: LoginRequest):
-    request_login_code(req.email)
+async def send_code(req: LoginRequest, bg: BackgroundTasks):
+    code = create_login_code(req.email)
+    bg.add_task(send_code_email, req.email, code)
     return {"ok": True, "msg": "验证码已发送"}
 
 
@@ -70,16 +71,16 @@ async def verify(req: VerifyRequest):
     if not result:
         raise HTTPException(status_code=400, detail="验证码错误或已过期")
     token, user = result
-    from fastapi.responses import Response
-    resp = Response(content={"ok": True, "email": user.email}, media_type="application/json")
+    from fastapi.responses import JSONResponse
+    resp = JSONResponse(content={"ok": True, "email": user.email})
     resp.set_cookie("token", token, max_age=30*24*3600, httponly=True, samesite="lax")
     return resp
 
 
 @app.post("/api/auth/logout")
 async def logout():
-    from fastapi.responses import Response
-    resp = Response(content={"ok": True}, media_type="application/json")
+    from fastapi.responses import JSONResponse
+    resp = JSONResponse(content={"ok": True})
     resp.delete_cookie("token")
     return resp
 
@@ -87,6 +88,46 @@ async def logout():
 @app.get("/api/auth/me")
 async def me(user: User = Depends(get_current_user)):
     return {"email": user.email}
+
+
+# ── Query price on demand ──
+class PriceQueryReq(BaseModel):
+    dep: str
+    arr: str
+    date: str
+
+@app.post("/api/query-price")
+async def query_price(req: PriceQueryReq, user: User = Depends(get_current_user)):
+    from app.crawlers.simple import crawl_all
+    from app.analyzer import industry_rule_score
+    result = await crawl_all(req.dep, req.arr, req.date)
+    if not result["best_price"]:
+        return {"best_price": None}
+
+    # 推荐价位算法：当前价 × 折扣系数，结合距出发天数
+    rule = industry_rule_score(req.date)
+    days_left = rule["days_left"]
+
+    # 距出发越远，通常还会降，建议设更低
+    if days_left > 60:
+        discount = 0.80   # 两个月以上，建议等降20%
+    elif days_left > 30:
+        discount = 0.88   # 1-2个月，建议等降12%
+    elif days_left > 14:
+        discount = 0.93   # 2周-1月，建议等降7%
+    elif days_left > 7:
+        discount = 0.97   # 1-2周，建议等降3%
+    else:
+        discount = 1.0    # 一周内，别等了
+
+    suggested = int(result["best_price"] * discount)
+    return {
+        "best_price": result["best_price"],
+        "best_platform": result["best_platform"],
+        "suggested_price": suggested,
+        "days_left": days_left,
+        "tip": rule["reasons"][0] if rule["reasons"] else "",
+    }
 
 
 # ── Monitor CRUD ──

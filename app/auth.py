@@ -23,19 +23,21 @@ def verify_token(token: str) -> int | None:
         return None
 
 
-def request_login_code(email: str) -> bool:
-    """Generate and email a 6-digit code."""
+def create_login_code(email: str) -> str:
+    """Generate and store a 6-digit code. Caller sends email separately."""
     code = "".join(random.choices(string.digits, k=6))
     db = SessionLocal()
     try:
-        # Invalidate previous codes
         db.query(EmailCode).filter(EmailCode.email == email, EmailCode.used == False).update({"used": True})
         db.add(EmailCode(email=email, code=code))
         db.commit()
-        send_verification_code(email, code)
-        return True
+        return code
     finally:
         db.close()
+
+
+def send_code_email(email: str, code: str):
+    send_verification_code(email, code)
 
 
 def login_with_code(email: str, code: str) -> tuple[str, User] | None:

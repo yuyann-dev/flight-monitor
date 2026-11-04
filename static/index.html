@@ -51,6 +51,32 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
 
 /* Toast */
 .toast { position: fixed; top: 20px; right: 20px; background: #333; color: #fff; padding: 12px 20px; border-radius: 8px; z-index: 999; }
+
+/* Time window chips */
+.tw-chip { display: inline-flex; align-items: center; gap: 4px; background: #eef4fb; color: #4A90D9; padding: 4px 10px; border-radius: 14px; font-size: 13px; margin: 2px; cursor: pointer; }
+.tw-chip.active { background: #4A90D9; color: #fff; }
+.tw-chip .x { cursor: pointer; font-weight: bold; }
+.tw-add { display: inline-flex; gap: 4px; align-items: center; margin-top: 6px; }
+.tw-add input[type=number] { width: 55px; padding: 4px 6px; border: 1px solid #ddd; border-radius: 6px; font-size: 13px; }
+
+/* Autocomplete suggest */
+.suggest-box { position: absolute; top: 100%; left: 0; right: 0; background: #fff; border: 1px solid #ddd; border-radius: 0 0 8px 8px; max-height: 200px; overflow-y: auto; z-index: 100; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+.suggest-item { padding: 10px 14px; cursor: pointer; font-size: 14px; border-bottom: 1px solid #f0f0f0; }
+.suggest-item:hover, .suggest-item.active { background: #f0f7ff; }
+.suggest-item small { color: #999; margin-left: 8px; }
+
+/* Responsive */
+@media (max-width: 768px) {
+  .login-wrap { margin: 40px 16px; padding: 24px; }
+  .app-header { padding: 12px 16px; }
+  .app-header h1 { font-size: 17px; }
+  .container { padding: 0 10px; margin: 12px auto; }
+  .card { padding: 16px; }
+  .form-grid { grid-template-columns: 1fr; }
+  .monitor-item { flex-direction: column; align-items: flex-start; gap: 10px; }
+  .monitor-price { text-align: left; }
+  .form-row { flex-direction: column; align-items: flex-start; gap: 8px; }
+}
 </style>
 </head>
 <body>
@@ -93,13 +119,15 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
     <div class="card">
       <h2>新建监控任务</h2>
       <div class="form-grid">
-        <div class="input-group">
+        <div class="input-group" style="position:relative">
           <label>出发城市</label>
-          <input type="text" id="depCity" placeholder="成都 / CTU">
+          <input type="text" id="depCity" placeholder="输入城市名" autocomplete="off" oninput="filterCities(this,'depSuggest')">
+          <div id="depSuggest" class="suggest-box hidden"></div>
         </div>
-        <div class="input-group">
+        <div class="input-group" style="position:relative">
           <label>到达城市</label>
-          <input type="text" id="arrCity" placeholder="上海 / PVG">
+          <input type="text" id="arrCity" placeholder="输入城市名" autocomplete="off" oninput="filterCities(this,'arrSuggest')">
+          <div id="arrSuggest" class="suggest-box hidden"></div>
         </div>
         <div class="input-group">
           <label>出发日期（起）</label>
@@ -126,23 +154,55 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
           </select>
         </div>
         <div class="input-group">
-          <label>心理价位（元）</label>
-          <input type="number" id="maxPrice" placeholder="到价即提醒">
+          <label>心理价位（裸票价格，不含机建燃油）</label>
+          <div style="display:flex; gap:8px;">
+            <input type="number" id="maxPrice" placeholder="如 500" style="flex:1">
+            <button class="btn btn-outline btn-sm" onclick="queryPrice()" style="white-space:nowrap">查当前价推荐</button>
+          </div>
+          <small style="color:#999; font-size:12px;">机建+燃油另加约130-190元（800km以上）。到这个价或系统预判最低时都会发邮件提醒。</small>
         </div>
         <div class="input-group">
-          <label>出发时段（如 6:00-12:00，可加多个）</label>
-          <input type="text" id="depTimeWindows" placeholder="6-12, 18-23">
+          <label>出发时段（点标签选择，可自定义添加）</label>
+          <div id="depTimeBoxes">
+            <span class="tw-chip" data-val="0-6" onclick="toggleChip(this)">凌晨0-6</span>
+            <span class="tw-chip" data-val="6-12" onclick="toggleChip(this)">上午6-12</span>
+            <span class="tw-chip" data-val="12-18" onclick="toggleChip(this)">下午12-18</span>
+            <span class="tw-chip" data-val="18-24" onclick="toggleChip(this)">晚上18-24</span>
+          </div>
+          <div class="tw-add">
+            <input type="number" id="depTwStart" min="0" max="23" placeholder="时">
+            <span>-</span>
+            <input type="number" id="depTwEnd" min="1" max="24" placeholder="时">
+            <button class="btn btn-outline btn-sm" onclick="addTw('depTimeBoxes','depTwStart','depTwEnd')">+添加</button>
+          </div>
         </div>
         <div class="input-group">
-          <label>到达时段</label>
-          <input type="text" id="arrTimeWindows" placeholder="10-18">
+          <label>到达时段（点标签选择，可自定义添加）</label>
+          <div id="arrTimeBoxes">
+            <span class="tw-chip" data-val="0-6" onclick="toggleChip(this)">凌晨0-6</span>
+            <span class="tw-chip" data-val="6-12" onclick="toggleChip(this)">上午6-12</span>
+            <span class="tw-chip" data-val="12-18" onclick="toggleChip(this)">下午12-18</span>
+            <span class="tw-chip" data-val="18-24" onclick="toggleChip(this)">晚上18-24</span>
+          </div>
+          <div class="tw-add">
+            <input type="number" id="arrTwStart" min="0" max="23" placeholder="时">
+            <span>-</span>
+            <input type="number" id="arrTwEnd" min="1" max="24" placeholder="时">
+            <button class="btn btn-outline btn-sm" onclick="addTw('arrTimeBoxes','arrTwStart','arrTwEnd')">+添加</button>
+          </div>
         </div>
         <div class="form-row full">
           <label><input type="checkbox" id="directOnly"> 仅直飞</label>
           <label><input type="checkbox" id="baggageRequired"> 需要免费托运行李</label>
         </div>
       </div>
-      <button class="btn btn-primary" onclick="createMonitor()" style="margin-top:16px">开始监控</button>
+      <div style="background:#f8f9fa; padding:12px; border-radius:8px; margin:16px 0; font-size:13px; color:#666;">
+        <b>提醒规则：</b>满足任一条件即发邮件到你邮箱——<br>
+        ① 价格降到你设定的心理价位以下；<br>
+        ② 系统根据历史走势预判当前就是近期最低价（后续大概率不会更低）。<br>
+        同一航线6小时内不重复打扰，除非价格再降5%以上。
+      </div>
+      <button class="btn btn-primary" onclick="createMonitor()">开始监控</button>
     </div>
 
     <!-- Monitor List -->
@@ -155,7 +215,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
 </div>
 
 <script>
-const API = '';
+const API = '/flight';
 
 async function api(path, opts={}) {
   const res = await fetch(API + path, { credentials: 'include', headers: {'Content-Type':'application/json'}, ...opts });
@@ -225,10 +285,49 @@ async function loadMonitors() {
   `).join('');
 }
 
+async function queryPrice() {
+  const dep = document.getElementById('depCity').value.trim();
+  const arr = document.getElementById('arrCity').value.trim();
+  const date = document.getElementById('depDateStart').value;
+  if (!dep || !arr || !date) return toast('请先填好城市和出发日期');
+  const btn = event.target;
+  btn.disabled = true;
+  btn.textContent = '查询中...';
+  try {
+    const res = await api('/api/query-price', {method:'POST', body: JSON.stringify({dep, arr, date})});
+    if (res.best_price) {
+      document.getElementById('maxPrice').value = res.suggested_price || res.best_price;
+      toast(`当前最低¥${res.best_price}，建议心理价位¥${res.suggested_price}（${res.tip||''}）`);
+    } else {
+      toast('暂未查到价格，可能是页面结构变了，手动填吧');
+    }
+  } catch(e) { toast('查询超时，手动填吧'); }
+  btn.disabled = false;
+  btn.textContent = '查当前价推荐';
+}
+
+function toggleChip(el) {
+  el.classList.toggle('active');
+}
+
+function addTw(boxId, startId, endId) {
+  const s = parseInt(document.getElementById(startId).value);
+  const e = parseInt(document.getElementById(endId).value);
+  if (!s || !e || s < 0 || e > 24 || s >= e) return toast('请输入有效时段，如 7-10');
+  const box = document.getElementById(boxId);
+  const chip = document.createElement('span');
+  chip.className = 'tw-chip active';
+  chip.dataset.val = s + '-' + e;
+  chip.innerHTML = s + ':00-' + e + ':00 <span class="x" onclick="this.parentElement.remove()">×</span>';
+  box.appendChild(chip);
+  document.getElementById(startId).value = '';
+  document.getElementById(endId).value = '';
+}
+
 async function createMonitor() {
-  const parseWindows = str => {
-    if (!str.trim()) return [];
-    return str.split(',').map(s => s.trim().split('-').map(Number)).filter(a => a.length === 2);
+  const getWindows = boxId => {
+    return Array.from(document.querySelectorAll('#' + boxId + ' .tw-chip.active'))
+      .map(el => el.dataset.val.split('-').map(Number));
   };
   const body = {
     departure_city: document.getElementById('depCity').value.trim(),
@@ -241,10 +340,11 @@ async function createMonitor() {
     direct_only: document.getElementById('directOnly').checked,
     baggage_required: document.getElementById('baggageRequired').checked,
     max_price: parseInt(document.getElementById('maxPrice').value) || null,
-    departure_time_windows: parseWindows(document.getElementById('depTimeWindows').value),
-    arrival_time_windows: parseWindows(document.getElementById('arrTimeWindows').value),
+    departure_time_windows: getWindows('depTimeBoxes'),
+    arrival_time_windows: getWindows('arrTimeBoxes'),
   };
   if (!body.departure_city || !body.arrival_city || !body.departure_date_start) return toast('请填写城市和日期');
+  if (body.departure_city === body.arrival_city) return toast('出发城市和到达城市不能相同');
   await api('/api/monitors', {method:'POST', body: JSON.stringify(body)});
   toast('监控已开启');
   loadMonitors();
@@ -265,5 +365,94 @@ async function stopMonitor(id) {
   } catch(e) { showLogin(); }
 })();
 </script>
-</body>
+<script>
+const CITIES = [
+  ["成都","CTU/TFU","双流/天府"],["重庆","CKG","江北"],["北京","PEK/PKX","首都/大兴"],
+  ["上海","PVG/SHA","浦东/虹桥"],["广州","CAN","白云"],["深圳","SZX","宝安"],
+  ["杭州","HGH","萧山"],["南京","NKG","禄口"],["武汉","WUH","天河"],
+  ["西安","XIY","咸阳"],["昆明","KMG","长水"],["三亚","SYX","凤凰"],
+  ["海口","HAK","美兰"],["厦门","XMN","高崎"],["长沙","CSX","黄花"],
+  ["青岛","TAO","胶东"],["大连","DLC","周水子"],["哈尔滨","HRB","太平"],
+  ["沈阳","SHE","桃仙"],["郑州","CGO","新郑"],["济南","TNA","遥墙"],
+  ["福州","FOC","长乐"],["贵阳","KWE","龙洞堡"],["南宁","NNG","吴圩"],
+  ["兰州","LHW","中川"],["乌鲁木齐","URC","地窝堡"],["拉萨","LXA","贡嘎"],
+  ["天津","TSN","滨海"],["太原","TYN","武宿"],["石家庄","SJW","正定"],
+  ["呼和浩特","HET","白塔"],["合肥","HFE","新桥"],["南昌","KHN","昌北"],
+  ["宁波","NGB","栎社"],["温州","WNZ","龙湾"],["珠海","ZUH","金湾"],
+  ["汕头","SWA","揭阳潮汕"],["桂林","KWL","两江"],["丽江","LJG","三义"],
+  ["西双版纳","JHG","嘎洒"],["大理","DLU","荒坝草"],["桂林","KWL","两江"],
+  ["泉州","JJN","晋江"],["烟台","YNT","蓬莱"],["威海","WEH","大水泊"],
+  ["唐山","TVS","三女河"],["秦皇岛","BPE","北戴河"],["包头","BAV","二里半"],
+  ["鄂尔多斯","DSN","伊金霍洛"],["赤峰","CIF","玉龙"],["通辽","TGO","通辽"],
+  ["海拉尔","HLD","东山"],["满洲里","NZH","西郊"],["佳木斯","JMU","东郊"],
+  ["牡丹江","MDG","海浪"],["丹东","DDG","浪头"],["延吉","YNJ","朝阳川"],
+  ["吉林","JIL","二台子"],["长春","CGQ","龙嘉"],["锦州","JNZ","小岭子"],
+  ["盐城","YNZ","南洋"],["徐州","XUZ","观音"],["常州","CZX","奔牛"],
+  ["扬州","YTY","泰州"],["南通","NTG","兴东"],["连云港","LYG","白塔埠"],
+  ["宿迁","SQJ","观音机场"],["淮安","HIA","涟水"],["阜阳","FUG","西关"],
+  ["黄山","TXN","屯溪"],["安庆","AQG","天柱山"],["九江","JIU","庐山"],
+  ["赣州","KOW","黄金"],["宜春","YIW","明月山"],["井冈山","JGS","井冈山"],
+  ["景德镇","JDZ","罗家"],["宜昌","YIH","三峡"],["襄阳","XFN","刘集"],
+  ["恩施","ENH","许家坪"],["十堰","WDS","武当山"],["神农架","HPG","红坪"],
+  ["张家界","DYG","荷花"],["常德","CGD","桃花源"],["永州","LLF","零陵"],
+  ["怀化","HJJ","芷江"],["岳阳","YYA","三荷"],["衡阳","HNY","南岳"],
+  ["邵阳","WGN","武冈"],["湛江","ZHA","湛江"],["梅县","MXZ","梅县"],
+  ["韶关","HSC","丹霞"],["北海","BHY","福成"],["柳州","LZH","白莲"],
+  ["桂林","KWL","两江"],["百色","AEB","巴马"],["梧州","WUZ","长洲岛"],
+  ["河池","HCJ","金城江"],["西昌","XIC","青山"],["绵阳","MIG","南郊"],
+  ["泸州","LZO","蓝田"],["宜宾","YBP","五粮液"],["南充","NAO","高坪"],
+  ["达州","DAX","河市"],["广元","GYS","盘龙"],["攀枝花","PZI","保安营"],
+  ["康定","KGT","康定"],["稻城","DCY","亚丁"],["九寨","JZH","黄龙"],
+  ["黄龙","JZH","九寨"],["甘孜","GZG","格萨尔"],["阿坝","AAT","红原"],
+  ["遵义","ZYI","新舟"],["铜仁","TEN","凤凰"],["毕节","BFJ","飞雄"],
+  ["安顺","AVA","黄果树"],["兴义","ACX","万峰林"],["六盘水","LPF","月照"],
+  ["喀什","KHG","喀什"],["伊宁","YIN","伊宁"],["阿克苏","AKU","温宿"],
+  ["和田","HTN","昆冈"],["库尔勒","KRL","库尔勒"],["阿勒泰","AAT","阿勒泰"],
+  ["塔城","TCG","塔城"],["克拉玛依","KRY","克拉玛依"],["库车","KCA","库车"],
+  ["哈密","HMI","哈密"],["吐鲁番","TLQ","交河"],["且末","IQM","且末"],
+  ["若羌","RQA","若羌"],["格尔木","GOQ","格尔木"],["西宁","XNN","曹家堡"],
+  ["玉树","YUS","巴塘"],["德令哈","HXD","德令哈"],["固原","GYU","固原"],
+  ["银川","INC","河东"],["中卫","ZHY","沙坡头"],["敦煌","DNH","敦煌"],
+  ["嘉峪关","JGN","嘉峪关"],["天水","THQ","麦积山"],["庆阳","IQN","庆阳"],
+  ["汉中","HZG","城固"],["榆林","UYN","榆阳"],["延安","ENY","南泥湾"],
+  ["临汾","LFQ","尧都"],["大同","DAT","云冈"],["运城","YCU","张孝"],
+  ["长治","CIH","王村"],["吕梁","LLV","大武"],["五台山","WUT","五台山"],
+  ["香港","HKG","赤鱲角"],["澳门","MFM","澳门"],["台北","TPE","桃园"],
+  ["高雄","KHH","小港"],["台中","RMQ","清泉岗"],
+];
+
+const dl = document.createElement('datalist');
+dl.id = 'cityList';
+CITIES.forEach(([name, code, airport]) => {
+  const opt = document.createElement('option');
+  opt.value = name;
+  opt.label = `${code} ${airport}`;
+  dl.appendChild(opt);
+});
+document.body.appendChild(dl);
+
+function filterCities(inputEl, boxId) {
+  const q = inputEl.value.trim();
+  const box = document.getElementById(boxId);
+  if (!q) { box.classList.add('hidden'); return; }
+  const matches = CITIES.filter(c => c[0].includes(q)).slice(0, 8);
+  if (!matches.length) { box.classList.add('hidden'); return; }
+  box.innerHTML = matches.map(c =>
+    `<div class="suggest-item" onclick="pickCity('${inputEl.id}','${boxId}','${c[0]}')">${c[0]}<small>${c[1]} ${c[2]}</small></div>`
+  ).join('');
+  box.classList.remove('hidden');
+}
+
+function pickCity(inputId, boxId, cityName) {
+  document.getElementById(inputId).value = cityName;
+  document.getElementById(boxId).classList.add('hidden');
+}
+
+// 点击外部关闭建议
+document.addEventListener('click', e => {
+  if (!e.target.closest('.input-group')) {
+    document.querySelectorAll('.suggest-box').forEach(b => b.classList.add('hidden'));
+  }
+});
+</script>
 </html>

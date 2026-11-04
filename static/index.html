@@ -338,7 +338,7 @@ async function loadMonitors() {
           ${m.last_checked ? ' · 最近更新 ' + formatTime(m.last_checked) : ''}
         </div>
       </div>
-      <div style="text-align:center">
+      <div style="text-align:left">
         ${m.latest_price ? `<div style="font-size:12px; color:#999;">当前最低</div><div style="font-size:20px; font-weight:bold; color:#e74c3c;">¥${m.latest_price}</div><small style="color:#999;">历史最低 ¥${m.best_price}</small>` : '<div style="color:#aaa">采集中...</div>'}
       </div>
       <button class="btn btn-danger btn-sm" onclick="event.stopPropagation(); stopMonitor(${m.id})">停止</button>
@@ -357,8 +357,6 @@ async function showDetail(mid) {
   document.getElementById('monitorListCard').classList.add('hidden');
   document.getElementById('monitorDetailCard').classList.remove('hidden');
   await loadDetail(mid);
-  // 等内容渲染完再滚到顶部
-  setTimeout(() => { window.scrollTo(0, 0); }, 100);
 }
 
 function backToList() {
@@ -501,18 +499,14 @@ async function loadDetail(mid) {
     if (!flights.length) {
       flightsEl.innerHTML = '<div style="text-align:center; color:#e67e22; padding: 20px;">暂未获取到航班数据<br><small style="color:#999;">可能原因：日期太远（flyai免费版仅支持近期航班）、或航线暂无机票</small></div>';
     } else {
-      // 如果勾选了需要免费托运行李，剔除廉航和差异化航司
-      // （因为市面上卖的基本都是折扣经济舱，差异化航司折扣舱没有免费托运）
+      // 如果勾选了需要免费托运行李，只剔除确定是廉航的（春秋、九元）
+      // 差异化航司保留，但在行李说明里标注清楚风险
       let filteredFlights = flights;
       if (m.baggage_required) {
         filteredFlights = flights.filter(f => {
           const airline = f.airline || '';
-          // 剔除廉航
+          // 只剔除100%确定是廉航的
           for (const a of ULTRA_LOW_COST_AIRLINES) {
-            if (airline.includes(a)) return false;
-          }
-          // 剔除差异化航司（折扣经济舱大概率无免费托运）
-          for (const a of DIFFERENTIATED_AIRLINES) {
             if (airline.includes(a)) return false;
           }
           return true;
@@ -545,6 +539,9 @@ async function loadDetail(mid) {
   } catch(e) {
     flightsEl.innerHTML = '<div style="text-align:center; color:#e74c3c; padding: 20px;">加载失败: ' + e.message + '</div>';
   }
+
+  // 所有内容渲染完后，滚到顶部
+  window.scrollTo(0, 0);
 }
 
 async function queryPrice() {

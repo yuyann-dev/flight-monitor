@@ -23,6 +23,7 @@ class BaseCrawler:
         self.playwright = await async_playwright().start()
         self.browser = await self.playwright.chromium.launch(
             headless=settings.headless,
+            executable_path="/usr/bin/chromium-browser",
             args=[
                 "--disable-blink-features=AutomationControlled",
                 "--no-sandbox",

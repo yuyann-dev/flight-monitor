@@ -30,6 +30,8 @@ class Settings(BaseSettings):
     request_delay_max: float = 8.0     # 平台间最大延迟(秒)
     max_retries: int = 2
     headless: bool = True
+    proxy_url: str = ""  # 代理地址，如 "http://user:pass@proxy:port"，留空直连
+    crawler_token: str = "change-me-crawler-token"  # GitHub Actions 爬虫回调 token
 
     # 费用（含税计算）
     airport_construction_fee: int = 50       # 机建费
@@ -38,7 +40,7 @@ class Settings(BaseSettings):
     short_haul_threshold_km: int = 800
 
     # 通知防打扰
-    notify_cooldown_hours: int = 24          # 同航线冷却
+    notify_cooldown_hours: int = 6            # 同航线冷却
     notify_price_drop_pct: float = 5.0       # 再降5%才二次提醒
 
     model_config = SettingsConfigDict(env_file=".env")

@@ -4,7 +4,7 @@ from datetime import datetime
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 from app.models import SessionLocal, Monitor, PriceSample
-from app.crawlers.simple import crawl_all
+from app.crawlers import crawl_all
 from app.analyzer import should_notify
 from app.email_service import send_price_alert
 from app.config import settings

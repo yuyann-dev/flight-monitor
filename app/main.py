@@ -98,7 +98,7 @@ class PriceQueryReq(BaseModel):
 
 @app.post("/api/query-price")
 async def query_price(req: PriceQueryReq, user: User = Depends(get_current_user)):
-    from app.crawlers.simple import crawl_all
+    from app.crawlers import crawl_all
     from app.analyzer import industry_rule_score
     result = await crawl_all(req.dep, req.arr, req.date)
     if not result["best_price"]:
@@ -211,6 +211,47 @@ async def monitor_history(mid: int, user: User = Depends(get_current_user)):
             }
             for s in samples[-60:]
         ]
+    finally:
+        db.close()
+
+
+# ── Crawler callback API (for GitHub Actions) ──
+class CrawlerResult(BaseModel):
+    dep: str
+    arr: str
+    date: str
+    platform: str
+    prices: list[int]
+
+
+@app.post("/api/crawler-results")
+async def receive_crawler_results(results: list[CrawlerResult], request: Request):
+    token = request.headers.get("Authorization", "")
+    if not token.startswith("Bearer ") or token[7:] != settings.crawler_token:
+        raise HTTPException(status_code=403, detail="非法调用")
+    
+    db = SessionLocal()
+    try:
+        for r in results:
+            best = min(r.prices) if r.prices else None
+            # 找到对应的监控任务
+            monitors = db.query(Monitor).filter(
+                Monitor.dep_code == r.dep,
+                Monitor.arr_code == r.arr,
+                Monitor.departure_date_start <= r.date,
+                Monitor.departure_date_end >= r.date,
+                Monitor.is_active == True,
+            ).all()
+            for m in monitors:
+                sample = PriceSample(
+                    monitor_id=m.id,
+                    best_price=best,
+                    best_platform=r.platform,
+                    raw_data=str(r.prices),
+                )
+                db.add(sample)
+        db.commit()
+        return {"ok": True, "count": len(results)}
     finally:
         db.close()
 

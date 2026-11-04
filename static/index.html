@@ -385,7 +385,7 @@ async function loadMonitors() {
           : (isNight()
             ? '<div style="color:#5a6b7b; font-size:13px;">夜间暂停自动更新<br><small style="color:#999;">点进详情可手动刷新</small></div>'
             : m.stale
-              ? '<div style="color:#e67e22; font-size:13px;">数据源暂不可用<br><small style="color:#999;">最近采集失败，未显示旧价</small></div>'
+              ? '<div style="color:#e67e22; font-size:13px;">飞猪渠道暂未返回<br><small style="color:#999;">该航线本次无有效航班，自动重试中；未沿用历史价格</small></div>'
               : m.no_match
                 ? '<div style="color:#5a6b7b; font-size:13px;">暂无符合条件航班<br><small style="color:#999;">数据源正常，可放宽筛选</small></div>'
                 : '<div style="color:#aaa">采集中...</div>')}
@@ -578,7 +578,7 @@ async function loadDetail(mid) {
       if (isNight()) {
         flightsEl.innerHTML = '<div style="text-align:center; color:#5a6b7b; padding:20px;">夜间暂停自动采集（0:00–7:00）<br><span style="color:#999; font-size:12px;">点上方「立即刷新」可手动查询最新价，7:00 后自动恢复监控</span></div>';
       } else if (detailRes.stale) {
-        flightsEl.innerHTML = '<div style="text-align:center; color:#e67e22; padding:20px;">数据源暂时不可用<br><span style="color:#999; font-size:12px;">最近一次采集失败，不再显示旧数据避免误导；可点「立即刷新」重试</span></div>';
+        flightsEl.innerHTML = '<div style="text-align:center; color:#e67e22; padding:20px;">飞猪渠道本次未返回有效航班<br><span style="color:#999; font-size:12px;">上游暂未提供该航线数据，系统每30分钟自动重试；为避免误导不显示旧价，也可点「立即刷新」</span></div>';
       } else if (detailRes.no_match) {
         flightsEl.innerHTML = '<div style="text-align:center; color:#5a6b7b; padding:20px;">暂无符合当前筛选条件的航班<br><span style="color:#999; font-size:12px;">数据源正常，可放宽直飞/时段/行李条件后再看</span></div>';
       } else {

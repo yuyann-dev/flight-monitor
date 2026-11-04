@@ -53,7 +53,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
 .toast { position: fixed; top: 20px; right: 20px; background: #333; color: #fff; padding: 12px 20px; border-radius: 8px; z-index: 999; }
 
 /* Time window chips */
-.tw-chip { display: inline-flex; align-items: center; gap: 4px; background: #eef4fb; color: #4A90D9; padding: 4px 10px; border-radius: 14px; font-size: 13px; margin: 2px; cursor: pointer; }
+.tw-chip { display: inline-flex; align-items: center; gap: 4px; background: #eef4fb; color: #4A90D9; padding: 6px 12px; border-radius: 14px; font-size: 13px; margin: 2px; cursor: pointer; border: none; touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
 .tw-chip.active { background: #4A90D9; color: #fff; }
 .tw-chip .x { cursor: pointer; font-weight: bold; }
 .tw-add { display: inline-flex; gap: 4px; align-items: center; margin-top: 6px; }
@@ -178,10 +178,10 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
         <div class="input-group">
           <label>出发时段（点标签选择，可自定义）</label>
           <div id="depTimeBoxes">
-            <span class="tw-chip" data-val="0-6" onclick="toggleChip(this)">凌晨0-6</span>
-            <span class="tw-chip" data-val="6-12" onclick="toggleChip(this)">上午6-12</span>
-            <span class="tw-chip" data-val="12-18" onclick="toggleChip(this)">下午12-18</span>
-            <span class="tw-chip" data-val="18-24" onclick="toggleChip(this)">晚上18-24</span>
+            <button type="button" class="tw-chip" data-val="0-6" onclick="toggleChip(this)">凌晨0-6</button>
+            <button type="button" class="tw-chip" data-val="6-12" onclick="toggleChip(this)">上午6-12</button>
+            <button type="button" class="tw-chip" data-val="12-18" onclick="toggleChip(this)">下午12-18</button>
+            <button type="button" class="tw-chip" data-val="18-24" onclick="toggleChip(this)">晚上18-24</button>
           </div>
           <div class="tw-add">
             <input type="number" id="depTwStart" min="0" max="23" placeholder="时">
@@ -193,10 +193,10 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
         <div class="input-group">
           <label>到达时段（点标签选择，可自定义）</label>
           <div id="arrTimeBoxes">
-            <span class="tw-chip" data-val="0-6" onclick="toggleChip(this)">凌晨0-6</span>
-            <span class="tw-chip" data-val="6-12" onclick="toggleChip(this)">上午6-12</span>
-            <span class="tw-chip" data-val="12-18" onclick="toggleChip(this)">下午12-18</span>
-            <span class="tw-chip" data-val="18-24" onclick="toggleChip(this)">晚上18-24</span>
+            <button type="button" class="tw-chip" data-val="0-6" onclick="toggleChip(this)">凌晨0-6</button>
+            <button type="button" class="tw-chip" data-val="6-12" onclick="toggleChip(this)">上午6-12</button>
+            <button type="button" class="tw-chip" data-val="12-18" onclick="toggleChip(this)">下午12-18</button>
+            <button type="button" class="tw-chip" data-val="18-24" onclick="toggleChip(this)">晚上18-24</button>
           </div>
           <div class="tw-add">
             <input type="number" id="arrTwStart" min="0" max="23" placeholder="时">
@@ -598,7 +598,7 @@ function addTw(boxId, startId, endId) {
   const e = parseInt(document.getElementById(endId).value);
   if (isNaN(s) || isNaN(e) || s < 0 || e > 24 || s >= e) return toast('请输入有效时段，如 7-10');
   const box = document.getElementById(boxId);
-  const chip = document.createElement('span');
+  const chip = document.createElement('button'); chip.type='button';
   chip.className = 'tw-chip active';
   chip.dataset.val = s + '-' + e;
   chip.innerHTML = s + ':00-' + e + ':00 <span class="x" onclick="this.parentElement.remove()">×</span>';
@@ -628,6 +628,11 @@ async function createMonitor() {
   };
   if (!body.departure_city || !body.arrival_city || !body.departure_date_start) return toast('请填写城市和日期');
   if (body.departure_city === body.arrival_city) return toast('出发城市和到达城市不能相同');
+  const depWin = body.departure_time_windows, arrWin = body.arrival_time_windows;
+  if (depWin.length || arrWin.length) {
+    const fmt = w => w.map(x => `${x[0]}:00-${x[1]}:00`).join('、');
+    toast(`已选时段：出发${fmt(depWin)||'不限'}，到达${fmt(arrWin)||'不限'}`);
+  }
   const newMonitor = await api('/api/monitors', {method:'POST', body: JSON.stringify(body)});
   toast('监控已开启');
   if (newMonitor && newMonitor.id) {

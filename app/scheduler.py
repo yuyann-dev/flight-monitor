@@ -4,6 +4,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 from app.models import SessionLocal, Monitor, PriceSample
 from app.crawlers.fliggy_api import FliggyCrawler
+from app.crawlers.variflight_api import VariflightCrawler
 from app.analyzer import should_notify
 from app.airlines import has_free_baggage
 from app.email_service import send_price_alert
@@ -97,18 +98,24 @@ async def run_single_monitor(mid: int):
         date_list = _parse_date_range(m)
         print(f"[scheduler] crawling {len(date_list)} dates: {date_list}")
 
-        # 飞猪（flyai CLI），逐天爬取
+        # 多数据源逐天爬取并合并：飞猪（flyai CLI）+ 飞常准（MCP，未配置 Key 时自动跳过）
         all_flights = []
-        crawler = FliggyCrawler()
+        crawlers = [
+            FliggyCrawler(),
+            VariflightCrawler(api_key=settings.variflight_mcp_key),
+        ]
         for date_str in date_list:
-            try:
-                day_flights = crawler.search(dep_code, arr_code, date_str)
-                for f in day_flights:
-                    f["date"] = date_str
-                all_flights.extend(day_flights)
-                print(f"[scheduler] {date_str}: got {len(day_flights)} flights")
-            except Exception as e:
-                print(f"[scheduler] {date_str} error: {e}")
+            day_flights = []
+            for crawler in crawlers:
+                try:
+                    found = crawler.search(dep_code, arr_code, date_str)
+                    day_flights.extend(found)
+                except Exception as e:
+                    print(f"[scheduler] {date_str} {crawler.name} error: {e}")
+            for f in day_flights:
+                f["date"] = date_str
+            all_flights.extend(day_flights)
+            print(f"[scheduler] {date_str}: got {len(day_flights)} flights")
 
         flights = all_flights
 

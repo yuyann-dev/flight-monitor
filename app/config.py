@@ -27,6 +27,9 @@ class Settings(BaseSettings):
     # 抓取配置
     crawl_interval_minutes: int = 30  # 每轮间隔（分钟）
 
+    # 多数据源：飞常准 MCP（留空则仅使用飞猪）
+    variflight_mcp_key: str = ""
+
     # 费用（含税计算）
     airport_construction_fee: int = 50       # 机建费
     fuel_surcharge_short: int = 80           # 800km 以下燃油

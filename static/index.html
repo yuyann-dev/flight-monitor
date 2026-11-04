@@ -247,6 +247,13 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
         </div>
       </div>
 
+      <!-- 购买建议 -->
+      <div style="margin-bottom: 24px; padding: 16px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 12px; color: white;">
+        <div style="font-size: 14px; opacity: 0.9; margin-bottom: 8px;">📊 购买建议</div>
+        <div id="buyAdvice" style="font-size: 18px; font-weight: bold; margin-bottom: 8px;">分析中...</div>
+        <div id="buyAdviceReason" style="font-size: 13px; opacity: 0.9; line-height: 1.6;"></div>
+      </div>
+
       <!-- 价格走势 -->
       <div style="margin-bottom: 24px;">
         <h3 style="font-size: 16px; margin-bottom: 12px;">价格走势</h3>
@@ -376,17 +383,22 @@ async function refreshDetail() {
   }
 }
 
-// 全服务航司（经济舱免费托运20kg）
-const FULL_SERVICE_AIRLINES = ['国航', '东航', '南航', '海航', '川航', '深航', '厦航', '山东航', '上航'];
-// 廉航（无免费托运）
-const LOW_COST_AIRLINES = ['春秋', '九元', '祥鹏', '西部航空', '首都航空', '青岛航', '乌鲁木齐航'];
+// 全服务航司（经济舱标准票价免费托运20kg）
+const FULL_SERVICE_AIRLINES = ['国航', '东航', '南航', '海航', '川航', '深航', '厦航', '山东航', '上航', '中联航'];
+// 差异化航司（折扣舱无免费托运，全价舱有20kg）
+const DIFFERENTIATED_AIRLINES = ['西部航空', '祥鹏航空', '首都航空', '天津航', '青岛航', '乌鲁木齐航'];
+// 廉航（基本无免费托运）
+const ULTRA_LOW_COST_AIRLINES = ['春秋航空', '九元航空'];
 
 function getBaggageInfo(airlineName) {
   for (const a of FULL_SERVICE_AIRLINES) {
-    if (airlineName.includes(a)) return '免费托运 20kg · 手提 7kg';
+    if (airlineName.includes(a)) return '全服务航司：经济舱免费托运20kg';
   }
-  for (const a of LOW_COST_AIRLINES) {
-    if (airlineName.includes(a)) return '廉航：无免费托运（需付费购买）';
+  for (const a of DIFFERENTIATED_AIRLINES) {
+    if (airlineName.includes(a)) return '差异化航司：折扣舱可能无免费托运，以购买页为准';
+  }
+  for (const a of ULTRA_LOW_COST_AIRLINES) {
+    if (airlineName.includes(a)) return '廉航：经济舱基本无免费托运，需付费购买';
   }
   return '行李额度请以购买页为准';
 }
@@ -407,6 +419,44 @@ async function loadDetail(mid) {
 
   const labels = history.map(h => formatTime(h.time));
   const prices = history.map(h => h.price);
+
+  // 计算购买建议
+  const currentPrice = prices[prices.length - 1];
+  const minPrice = Math.min(...prices);
+  const maxPrice = Math.max(...prices);
+  const pct = prices.filter(p => p <= currentPrice).length / prices.length * 100;
+
+  // 距出发天数
+  const depDate = new Date(m.departure_date);
+  const today = new Date();
+  const daysLeft = Math.ceil((depDate - today) / (1000 * 60 * 60 * 24));
+
+  let advice, adviceReason, adviceColor;
+  if (daysLeft < 7) {
+    advice = '⏰ 建议尽快购买';
+    adviceReason = `距出发仅${daysLeft}天，临期价格通常只会上涨，越晚越贵。`;
+  } else if (pct <= 20 && daysLeft >= 14) {
+    advice = '✅ 强烈建议入手';
+    adviceReason = `当前价格处于历史${Math.round(pct)}%分位（低于80%的时段），且距离出发还有${daysLeft}天，是低价窗口。`;
+  } else if (pct <= 40) {
+    advice = '👍 可以考虑入手';
+    adviceReason = `当前价格处于历史${Math.round(pct)}%分位，偏低。`;
+  } else if (daysLeft > 45) {
+    advice = '⏳ 再等等';
+    adviceReason = `距出发还有${daysLeft}天，价格尚未稳定，大概率还会降。`;
+  } else {
+    advice = '👀 继续观望';
+    adviceReason = `当前价格处于历史${Math.round(pct)}%分位，不算便宜也不算贵，可以再等等看会不会降。`;
+  }
+
+  // 如果到了心理价位
+  if (m.max_price && currentPrice <= m.max_price) {
+    advice = '🎉 已达心理价位，建议入手';
+    adviceReason = `当前价格¥${currentPrice}已低于你设定的心理价位¥${m.max_price}。`;
+  }
+
+  document.getElementById('buyAdvice').textContent = advice;
+  document.getElementById('buyAdviceReason').innerHTML = adviceReason;
 
   // 折线图
   const ctx = document.getElementById('priceChart').getContext('2d');

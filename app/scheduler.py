@@ -343,17 +343,16 @@ async def run_single_monitor(mid: int, manual_refresh: bool = False):
 
 
 async def run_monitor_job():
-    """Crawl all active monitors. Owner monitors every round; others every 3rd round."""
+    """Crawl all active monitors. Owner every 30min, others every 60min (every other round)."""
     global _round_counter
     _round_counter += 1
     db = SessionLocal()
     try:
         owner = db.query(User).filter(User.email == settings.owner_email).first()
         monitors = db.query(Monitor).filter(Monitor.is_active == True).all()
-        print(f"[scheduler] round {_round_counter}: checking {len(monitors)} monitors")
         for m in monitors:
-            # 分级：主人的任务每轮都跑，其他人的任务每3轮跑一次
-            if owner and m.user_id != owner.id and _round_counter % 3 != 0:
+            # 别人的任务隔轮跑（每60分钟），用户的每轮都跑（30分钟）
+            if owner and m.user_id != owner.id and _round_counter % 2 != 0:
                 continue
             await run_single_monitor(m.id)
     finally:
@@ -362,7 +361,7 @@ async def run_monitor_job():
 
 def start_scheduler():
     from apscheduler.triggers.cron import CronTrigger
-    # 白天 7:00-23:59 每30分钟
+    # 白天 7:00-23:59 每30分钟一轮（用户monitor每轮都跑，别人的隔轮=每60分钟）
     scheduler.add_job(
         run_monitor_job,
         trigger=CronTrigger(minute="*/30", hour="7-23"),
@@ -370,12 +369,6 @@ def start_scheduler():
         id="monitor_day",
         replace_existing=True,
     )
-    # 夜间 0:00-6:59 每2小时
-    scheduler.add_job(
-        run_monitor_job,
-        trigger=CronTrigger(minute="0", hour="0-6"),
-        id="monitor_night",
-        replace_existing=True,
-    )
+    # 夜间不跑
     scheduler.start()
-    print("[scheduler] started: 白天7-24点每30分钟, 夜间0-7点每2小时")
+    print("[scheduler] started: 白天7-24点每30分钟(用户)/每60分钟(别人), 夜间不跑")

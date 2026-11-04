@@ -340,23 +340,44 @@ async def monitor_refresh(mid: int, user: User = Depends(get_current_user)):
     from app.scheduler import run_single_monitor
     from pathlib import Path
     import time as _time
-    # 手动刷新每天限3次飞常准（飞猪免费刷新不限）
-    quota_file = Path(settings.database_url.replace("sqlite:///", "")).parent / ".variflight_daily_quota"
+    db = SessionLocal()
+    try:
+        monitor = db.query(Monitor).filter(Monitor.id == mid).first()
+        owner = db.query(User).filter(User.email == settings.owner_email).first()
+        is_owner = owner and user.id == owner.id
+    finally:
+        db.close()
+
     today = _time.strftime("%Y-%m-%d")
-    used_today = 0
-    if quota_file.exists():
-        try:
-            date_str, count = quota_file.read_text().strip().split(":")
-            if date_str == today:
-                used_today = int(count)
-        except Exception:
-            pass
-    if used_today >= 3:
-        return {"ok": False, "msg": "飞常准今日手动刷新次数已用完（3次），明天自动恢复"}
-    await run_single_monitor(mid, manual_refresh=True)
-    # 如果飞猪429用了飞常准，计数+1
-    quota_file.write_text(f"{today}:{used_today + 1}")
-    return {"ok": True, "variflight_used": used_today + 1, "variflight_left": 3 - used_today - 1}
+    quota_file = Path(settings.database_url.replace("sqlite:///", "")).parent / ".variflight_daily_quota"
+
+    if is_owner:
+        # 主人：飞猪不限额，飞常准每天3次
+        used_today = 0
+        if quota_file.exists():
+            try:
+                d, c = quota_file.read_text().strip().split(":")
+                if d == today: used_today = int(c)
+            except Exception: pass
+        if used_today >= 3:
+            return {"ok": False, "msg": "飞常准今日手动刷新次数已用完（3次），明天自动恢复"}
+        await run_single_monitor(mid, manual_refresh=True)
+        quota_file.write_text(f"{today}:{used_today + 1}")
+        return {"ok": True, "variflight_left": 3 - used_today - 1}
+    else:
+        # 其他用户：手动刷新每天限1次
+        other_quota = Path(settings.database_url.replace("sqlite:///", "")).parent / ".other_refresh_quota"
+        used = 0
+        if other_quota.exists():
+            try:
+                d, c = other_quota.read_text().strip().split(":")
+                if d == today: used = int(c)
+            except Exception: pass
+        if used >= 1:
+            return {"ok": False, "msg": "今日手动刷新次数已用完（1次），明天自动恢复"}
+        await run_single_monitor(mid, manual_refresh=True)
+        other_quota.write_text(f"{today}:{used + 1}")
+        return {"ok": True}
 
 
 # ── 静态资源与前端 ──

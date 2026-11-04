@@ -435,7 +435,7 @@ async function loadDetail(mid) {
     const flights = detailRes.flights || [];
     console.log('flights count:', flights.length);
     if (!flights.length) {
-      flightsEl.innerHTML = '<div style="text-align:center; color:#aaa; padding: 20px;">暂无航班数据（可能是首次抓取，请等30分钟自动更新）</div>';
+      flightsEl.innerHTML = '<div style="text-align:center; color:#e67e22; padding: 20px;">暂未获取到航班数据<br><small style="color:#999;">可能原因：日期太远（flyai免费版仅支持近期航班）、或航线暂无机票</small></div>';
     } else {
       flightsEl.innerHTML = flights.map(f => `
         <div style="border: 1px solid #eee; border-radius: 10px; padding: 14px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center;">

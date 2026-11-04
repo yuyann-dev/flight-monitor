@@ -1,56 +1,99 @@
-"""Ctrip (携程) flight crawler."""
-import re
-from app.crawlers.base import BaseCrawler
+"""Ctrip (携程) flight crawler - Playwright with cookie."""
+import asyncio
+import json
+from pathlib import Path
+from playwright.async_api import async_playwright
 
 
-class CtripCrawler(BaseCrawler):
+class CtripCrawler:
     name = "ctrip"
-    BASE = "https://flights.ctrip.com/online/list"
+    COOKIE_FILE = Path("/opt/flight-monitor/ctrip_cookie.txt")
+    STATE_FILE = Path("/opt/flight-monitor/ctrip_state.json")
+    EXECUTABLE = "/usr/bin/chromium-browser"
 
-    async def search(self, dep_code: str, arr_code: str, dep_date: str,
-                     ret_date: str | None = None, cabin: str = "economy",
-                     direct_only: bool = False) -> list[dict]:
-        cabin_map = {"economy": "y", "business": "c", "first": "f"}
-        cabin_char = cabin_map.get(cabin, "y")
+    def _load_cookie_str(self) -> str:
+        if not self.COOKIE_FILE.exists():
+            return ""
+        return self.COOKIE_FILE.read_text().strip()
+
+    def _cookie_str_to_playwright_cookies(self, cookie_str: str) -> list[dict]:
+        cookies = []
+        for item in cookie_str.split("; "):
+            if "=" in item:
+                name, value = item.split("=", 1)
+                cookies.append({
+                    "name": name,
+                    "value": value,
+                    "domain": ".ctrip.com",
+                    "path": "/",
+                })
+        return cookies
+
+    async def search_async(self, dep_code: str, arr_code: str, dep_date: str,
+                           ret_date: str | None = None) -> list[dict]:
+        cookie_str = self._load_cookie_str()
+        if not cookie_str:
+            print("[ctrip] no cookie, skip")
+            return []
+
         trip_type = "oneway" if not ret_date else "round"
+        url = f"https://flights.ctrip.com/online/list/{trip_type}-{dep_code}-{arr_code}?depdate={dep_date}"
 
-        url = f"{self.BASE}/{trip_type}-{dep_code}-{arr_code}?depdate={dep_date}&cabin={cabin_char}_s_c_f"
-        if ret_date:
-            url += f"&rtdate={ret_date}"
+        pw = await async_playwright().start()
+        browser = await pw.chromium.launch(
+            headless=True,
+            executable_path=self.EXECUTABLE,
+            args=["--no-sandbox", "--disable-dev-shm-usage", "--disable-blink-features=AutomationControlled"]
+        )
 
-        context = await self.new_context()
+        context = await browser.new_context(
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+            viewport={"width": 1280, "height": 800},
+            locale="zh-CN",
+        )
+
+        await context.add_cookies(self._cookie_str_to_playwright_cookies(cookie_str))
+
         page = await context.new_page()
         flights = []
+
         try:
             await page.goto(url, wait_until="networkidle", timeout=30000)
-            await page.wait_for_timeout(5000)  # 等待动态加载
+            await page.wait_for_timeout(6000)
 
-            # 提取航班卡片
-            cards = await page.query_selector_all(".flight-list, .list-item, [class*='flight-item']")
-            if not cards:
-                # 备用选择器
-                cards = await page.query_selector_all("div[class*='FlightItem'], div[class*='list-item']")
-
-            for card in cards[:15]:
+            # 提取所有价格
+            price_elements = await page.query_selector_all("span, div")
+            prices = set()
+            for el in price_elements:
                 try:
-                    text = await card.inner_text()
-                    price_match = re.search(r"¥?(\d{3,5})", text)
-                    if not price_match:
-                        continue
-                    price = int(price_match.group(1))
-
-                    flights.append({
-                        "platform": "携程",
-                        "price": price,
-                        "raw_text": text[:300],
-                        "link": url,
-                    })
+                    text = await el.inner_text()
+                    text = text.strip()
+                    if text.startswith("¥") and len(text) <= 8:
+                        price_str = text[1:]
+                        if price_str.isdigit():
+                            p = int(price_str)
+                            if 100 < p < 20000:
+                                prices.add(p)
                 except Exception:
                     continue
+
+            for p in sorted(prices):
+                flights.append({
+                    "platform": "携程",
+                    "price": p,
+                    "raw_text": f"携程机票 ¥{p}",
+                    "link": url,
+                })
+
         except Exception as e:
-            print(f"[ctrip] crawl error: {e}")
+            print(f"[ctrip] error: {e}")
         finally:
             await context.close()
+            await browser.close()
+            await pw.stop()
 
-        flights.sort(key=lambda x: x["price"])
         return flights
+
+    def search(self, dep_code: str, arr_code: str, dep_date: str,
+               ret_date: str | None = None) -> list[dict]:
+        return asyncio.run(self.search_async(dep_code, arr_code, dep_date, ret_date))

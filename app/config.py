@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     smtp_user: str = ""
     smtp_password: str = ""  # 授权码
     smtp_from: str = ""
+    admin_email: str = ""  # 管理员邮箱，用于cookie过期提醒
 
     # 抓取配置
     crawl_interval_minutes: int = 180  # 默认3小时一轮

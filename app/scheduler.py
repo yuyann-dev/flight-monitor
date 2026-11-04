@@ -1,4 +1,5 @@
 """APScheduler job: periodically crawl all active monitors."""
+import asyncio
 from datetime import datetime, timedelta
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
@@ -14,6 +15,7 @@ from app.config import settings
 scheduler = AsyncIOScheduler(timezone="Asia/Shanghai")
 
 _round_counter = 0  # 全局轮次计数，用于分级调度
+_batch_lock = asyncio.Lock()  # 防止同一轮采集被重复/并发触发，避免重复消耗飞猪额度
 
 
 def _set_fliggy_status(limited: bool):
@@ -356,19 +358,25 @@ async def run_single_monitor(mid: int, manual_refresh: bool = False) -> bool:
 
 async def run_monitor_job():
     """Crawl all active monitors. Owner every 30min, others every 60min (every other round)."""
+    # 防重入：上一批还没跑完就跳过，避免重复触发导致飞猪被自己打限流
+    if _batch_lock.locked():
+        print("[scheduler] skip: previous batch still running")
+        return
     global _round_counter
-    _round_counter += 1
-    db = SessionLocal()
-    try:
-        owner = db.query(User).filter(User.email == settings.owner_email).first()
-        monitors = db.query(Monitor).filter(Monitor.is_active == True).all()
-        for m in monitors:
-            # 别人的任务隔轮跑（每60分钟），用户的每轮都跑（30分钟）
-            if owner and m.user_id != owner.id and _round_counter % 2 != 0:
-                continue
-            await run_single_monitor(m.id)
-    finally:
-        db.close()
+    async with _batch_lock:
+        _round_counter += 1
+        print(f"[scheduler] batch #{_round_counter} triggered at {datetime.now().isoformat()}")
+        db = SessionLocal()
+        try:
+            owner = db.query(User).filter(User.email == settings.owner_email).first()
+            monitors = db.query(Monitor).filter(Monitor.is_active == True).all()
+            for m in monitors:
+                # 别人的任务隔轮跑（每60分钟），用户的每轮都跑（30分钟）
+                if owner and m.user_id != owner.id and _round_counter % 2 != 0:
+                    continue
+                await run_single_monitor(m.id)
+        finally:
+            db.close()
 
 
 def start_scheduler():
@@ -377,10 +385,13 @@ def start_scheduler():
     scheduler.add_job(
         run_monitor_job,
         trigger=CronTrigger(minute="*/30", hour="7-23"),
-        next_run_time=datetime.now(),
         id="monitor_day",
         replace_existing=True,
+        max_instances=1,       # 同一时刻只允许一个批次实例
+        coalesce=True,         # 错过的多次触发合并成一次，不补跑
+        misfire_grace_time=60, # 启动/卡顿后60秒内仍可补一轮，过期丢弃
     )
-    # 夜间不跑
+    # 夜间不跑；不设置 next_run_time，纯按 cron 整点/半点触发，避免重启立即抓
     scheduler.start()
-    print("[scheduler] started: 白天7-24点每30分钟(用户)/每60分钟(别人), 夜间不跑")
+    jobs = scheduler.get_jobs()
+    print(f"[scheduler] started: {len(jobs)} job(s); 白天7-23点每30分钟(用户)/每60分钟(别人), 夜间不跑")

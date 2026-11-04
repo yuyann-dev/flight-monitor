@@ -373,8 +373,8 @@ async def monitor_refresh(mid: int, user: User = Depends(get_current_user)):
                 d, c = other_quota.read_text().strip().split(":")
                 if d == today: used = int(c)
             except Exception: pass
-        if used >= 1:
-            return {"ok": False, "msg": "今日手动刷新次数已用完（1次），明天自动恢复"}
+        if used >= 3:
+            return {"ok": False, "msg": "今日手动刷新次数已用完（3次），明天自动恢复"}
         await run_single_monitor(mid, manual_refresh=True)
         other_quota.write_text(f"{today}:{used + 1}")
         return {"ok": True}

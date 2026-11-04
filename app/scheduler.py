@@ -143,7 +143,7 @@ def _merge_multi_source(flights: list[dict]) -> list[dict]:
 def _variflight_allowed_for(db, monitor) -> bool:
     """飞常准额度归属判断。
 
-    系统主人（owner_email，默认 2719752623@qq.com）名下存在活跃监控任务时，
+    系统主人（owner_email，见配置）名下存在活跃监控任务时，
     飞常准仅服务于主人自己的任务，其他用户的任务不消耗该额度；
     只有当主人没有任何活跃任务时，额度才允许用于其他用户。
     """

@@ -1,5 +1,5 @@
 """APScheduler job: periodically crawl all active monitors."""
-from datetime import datetime
+from datetime import datetime, timedelta
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 from app.models import SessionLocal, Monitor, PriceSample
@@ -42,14 +42,34 @@ async def run_single_monitor(mid: int):
         dep_code = CITY_NAME_TO_CODE.get(m.departure_city, m.departure_city[:3].upper())
         arr_code = CITY_NAME_TO_CODE.get(m.arrival_city, m.arrival_city[:3].upper())
 
-        # 多平台比价：飞猪（主，flyai CLI 官方数据）
+        # 遍历日期范围，爬每一天的价格
         all_flights = []
+        cheapest_date = m.departure_date_start
 
-        # 飞猪（主源，flyai CLI）
+        # 生成日期范围列表
+        start_date = datetime.strptime(m.departure_date_start, "%Y-%m-%d").date()
+        end_date = datetime.strptime(m.departure_date_end, "%Y-%m-%d").date()
+        date_list = []
+        current = start_date
+        while current <= end_date:
+            date_list.append(current.strftime("%Y-%m-%d"))
+            current += timedelta(days=1)
+
+        print(f"[scheduler] crawling {len(date_list)} dates: {date_list}")
+
+        # 飞猪（主源，flyai CLI）- 遍历每一天
         try:
             fliggy_crawler = FliggyCrawler()
-            fliggy_flights = fliggy_crawler.search(dep_code, arr_code, m.departure_date_start)
-            all_flights.extend(fliggy_flights)
+            for date_str in date_list:
+                try:
+                    day_flights = fliggy_crawler.search(dep_code, arr_code, date_str)
+                    # 给每个航班加上日期信息
+                    for f in day_flights:
+                        f["date"] = date_str
+                    all_flights.extend(day_flights)
+                    print(f"[scheduler] {date_str}: got {len(day_flights)} flights")
+                except Exception as e:
+                    print(f"[scheduler] {date_str} error: {e}")
         except Exception as e:
             print(f"[scheduler] fliggy error: {e}")
 
@@ -58,16 +78,18 @@ async def run_single_monitor(mid: int):
             print(f"[scheduler] no flights for monitor {m.id}")
             return
 
+        # 找最低价和最便宜的日期
         best_price = min(f["price"] for f in flights)
         best_platform = next(f["platform"] for f in flights if f["price"] == best_price)
+        cheapest_date = next(f["date"] for f in flights if f["price"] == best_price)
 
         # 保存样本
         sample = PriceSample(
             monitor_id=m.id,
-            departure_date=m.departure_date_start,
+            departure_date=cheapest_date,
             best_price=best_price,
             best_platform=best_platform,
-            flight_detail=flights[:5],
+            flight_detail=flights[:10],  # 存更多航班
         )
         db.add(sample)
 

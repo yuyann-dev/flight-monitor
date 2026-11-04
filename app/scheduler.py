@@ -270,7 +270,7 @@ async def run_single_monitor(mid: int, manual_refresh: bool = False):
 
         if not flights:
             print(f"[scheduler] no flights for monitor {m.id}")
-            # 采集失败不更新last_checked_at，避免误判stale
+            m.last_checked_at = datetime.utcnow()
             return
             db.commit()
             return
@@ -311,6 +311,7 @@ async def run_single_monitor(mid: int, manual_refresh: bool = False):
             last_sample.checked_at = now
 
         m.last_checked_at = now
+        m.last_success_at = now
         if not m.best_price_ever or best_price < m.best_price_ever:
             m.best_price_ever = best_price
 

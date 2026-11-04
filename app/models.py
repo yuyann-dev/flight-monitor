@@ -45,6 +45,7 @@ class Monitor(Base):
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     last_checked_at = Column(DateTime, nullable=True)
+    last_success_at = Column(DateTime, nullable=True)
     best_price_ever = Column(Float, nullable=True)
     last_notified_at = Column(DateTime, nullable=True)
     last_notified_price = Column(Float, nullable=True)

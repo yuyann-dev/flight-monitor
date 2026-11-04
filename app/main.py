@@ -323,11 +323,13 @@ async def monitor_latest_detail(mid: int, user: User = Depends(get_current_user)
             .first()
         )
         fees = compute_fees()
-        # 诚实显示：如果最近一次检查没拿到航班（渠道挂了），不返回旧数据
-        if monitor and monitor.last_checked_at and sample:
-            gap = (monitor.last_checked_at - sample.checked_at).total_seconds()
-            if gap > 300:  # 最近5分钟内检查过但没存新数据 = 渠道挂了
-                return {"flights": [], "fees": fees, "stale": True}
+        # 诚实显示：最近一次采集失败了（last_checked_at > last_success_at）就显示不可用
+        stale = bool(
+            monitor and monitor.last_checked_at and monitor.last_success_at
+            and monitor.last_checked_at > monitor.last_success_at
+        )
+        if stale:
+            return {"flights": [], "fees": fees, "stale": True}
         if not sample:
             return {"flights": [], "fees": fees, "stale": not bool(monitor and monitor.last_checked_at)}
         return {"flights": sample.flight_detail or [], "fees": fees}

@@ -367,9 +367,18 @@ function backToList() {
 }
 
 async function refreshDetail() {
-  toast('正在刷新...');
-  await loadDetail(currentMonitorId);
-  toast('刷新完成');
+  const btn = event.target;
+  btn.disabled = true;
+  btn.textContent = '刷新中...';
+  try {
+    await loadDetail(currentMonitorId);
+    toast('刷新完成');
+  } catch(e) {
+    toast('刷新失败: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '立即刷新';
+  }
 }
 
 async function loadDetail(mid) {
@@ -417,31 +426,37 @@ async function loadDetail(mid) {
   });
 
   // 航班列表 - 从最新一条 sample 的 flight_detail 里取
-  // 先查一下最新的 detail
-  const detailRes = await api(`/api/monitors/${mid}/latest-detail`);
-  const flights = detailRes.flights || [];
   const flightsEl = document.getElementById('detailFlights');
-  if (!flights.length) {
-    flightsEl.innerHTML = '<div style="text-align:center; color:#aaa; padding: 20px;">暂无航班数据</div>';
-  } else {
-    flightsEl.innerHTML = flights.map(f => `
-      <div style="border: 1px solid #eee; border-radius: 10px; padding: 14px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center;">
-        <div style="flex: 1;">
-          <div style="font-weight: 600; margin-bottom: 4px;">
-            ${f.airline} ${f.flight_no}
-            ${f.is_direct ? '<span style="font-size:11px; background:#e8f5e9; color:#2e7d32; padding:2px 6px; border-radius:4px; margin-left:6px;">直飞</span>' : '<span style="font-size:11px; background:#fff3e0; color:#e65100; padding:2px 6px; border-radius:4px; margin-left:6px;">中转</span>'}
+  flightsEl.innerHTML = '<div style="text-align:center; color:#aaa; padding: 20px;">加载中...</div>';
+  try {
+    const detailRes = await api(`/api/monitors/${mid}/latest-detail`);
+    console.log('latest-detail response:', detailRes);
+    const flights = detailRes.flights || [];
+    console.log('flights count:', flights.length);
+    if (!flights.length) {
+      flightsEl.innerHTML = '<div style="text-align:center; color:#aaa; padding: 20px;">暂无航班数据（可能是首次抓取，请等30分钟自动更新）</div>';
+    } else {
+      flightsEl.innerHTML = flights.map(f => `
+        <div style="border: 1px solid #eee; border-radius: 10px; padding: 14px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center;">
+          <div style="flex: 1;">
+            <div style="font-weight: 600; margin-bottom: 4px;">
+              ${f.airline || '未知航司'} ${f.flight_no || ''}
+              ${f.is_direct ? '<span style="font-size:11px; background:#e8f5e9; color:#2e7d32; padding:2px 6px; border-radius:4px; margin-left:6px;">直飞</span>' : '<span style="font-size:11px; background:#fff3e0; color:#e65100; padding:2px 6px; border-radius:4px; margin-left:6px;">中转</span>'}
+            </div>
+            <div style="font-size: 13px; color: #666;">
+              ${f.dep_time ? f.dep_time.substring(11, 16) : '--'} ${f.dep_airport || ''} → ${f.arr_time ? f.arr_time.substring(11, 16) : '--'} ${f.arr_airport || ''}
+            </div>
           </div>
-          <div style="font-size: 13px; color: #666;">
-            ${f.dep_time ? f.dep_time.substring(11, 16) : '--'} ${f.dep_airport || ''} → ${f.arr_time ? f.arr_time.substring(11, 16) : '--'} ${f.arr_airport || ''}
+          <div style="text-align: right; margin-right: 12px;">
+            <div style="font-size: 20px; font-weight: bold; color: #e74c3c;">¥${f.price}</div>
+            <div style="font-size: 11px; color: #999;">+机建燃油¥190</div>
           </div>
+          ${f.link ? `<a href="${f.link}" target="_blank" class="btn btn-primary btn-sm">去购买</a>` : ''}
         </div>
-        <div style="text-align: right; margin-right: 12px;">
-          <div style="font-size: 20px; font-weight: bold; color: #e74c3c;">¥${f.price}</div>
-          <div style="font-size: 11px; color: #999;">+机建燃油¥190</div>
-        </div>
-        ${f.link ? `<a href="${f.link}" target="_blank" class="btn btn-primary btn-sm">去购买</a>` : ''}
-      </div>
-    `).join('');
+      `).join('');
+    }
+  } catch(e) {
+    flightsEl.innerHTML = '<div style="text-align:center; color:#e74c3c; padding: 20px;">加载失败: ' + e.message + '</div>';
   }
 }
 

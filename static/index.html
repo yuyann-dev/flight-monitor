@@ -476,14 +476,15 @@ async function loadDetail(mid) {
     return w.map(x => label(x[0], x[1])).join('、');
   };
   const cond = [
-    `📅 日期：${dateText}`,
-    `✈️ ${m.direct_only ? '仅直飞' : '直飞/中转均可'}`,
-    `🧳 ${m.baggage_required ? '需要免费托运行李' : '不限行李额'}`,
-    `🕐 出发时段：${fmtWin(m.departure_time_windows)}`,
-    `🕕 到达时段：${fmtWin(m.arrival_time_windows)}`,
+    ['日期', dateText],
+    ['直飞', m.direct_only ? '仅直飞' : '直飞/中转均可'],
+    ['行李', m.baggage_required ? '需要免费托运行李' : '不限行李额'],
+    ['出发时段', fmtWin(m.departure_time_windows)],
+    ['到达时段', fmtWin(m.arrival_time_windows)],
   ];
   document.getElementById('detailConditions').innerHTML =
-    '<b style="color:#333;">我的监控条件</b><br>' + cond.join('<br>');
+    '<div style="font-size:12px; color:#999; margin-bottom:6px;">我的监控条件</div>' +
+    cond.map(([k,v]) => `<div><span style="color:#999;">${k}：</span><span style="color:#333;">${v}</span></div>`).join('');
 
   const history = await api(`/api/monitors/${mid}/history`);
   const latestPrice = history.length ? history[history.length - 1].price : null;

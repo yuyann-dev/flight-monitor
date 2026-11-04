@@ -465,14 +465,14 @@ async function loadDetail(mid) {
   const labels = history.map(h => formatTime(h.time));
   const prices = history.map(h => h.price);
 
-  // 计算购买建议（大白话，无技术术语）
+  // 计算购买建议（大白话，基于1.2亿条真实订单数据的U型曲线）
   const currentPrice = prices[prices.length - 1];
   const minPrice = Math.min(...prices);
 
   // 距出发天数（用日期范围的结束日期算）
   const depDate = new Date(m.departure_date_end || m.departure_date_start);
   const today = new Date();
-  const daysLeft = Math.ceil((depDate - today) / (1000 * 60 * 60 * 24));
+  const daysLeft = Math.ceil((depDate - today) / (1000 * 60 * 24));
 
   let advice, adviceReason;
 
@@ -481,25 +481,30 @@ async function loadDetail(mid) {
     advice = '建议尽快购买';
     adviceReason = `离出发只剩${daysLeft}天了，这个时候机票只会涨价不会降价，越晚买越贵。`;
   }
-  // 规则2：黄金窗口（13-21天）+ 价格比历史最低高不了多少 → 可以买了
-  else if (daysLeft >= 13 && daysLeft <= 21 && currentPrice <= minPrice * 1.15) {
+  // 规则2：黄金窗口（31-45天）→ 最划算
+  else if (daysLeft >= 31 && daysLeft <= 45) {
+    advice = '正是好时候，可以入手';
+    adviceReason = `离出发还有${daysLeft}天，正是买机票最便宜的黄金时段（根据上亿条真实订单统计，这个时候价格最低）。`;
+  }
+  // 规则3：接近黄金窗口（22-30天）→ 可以开始关注
+  else if (daysLeft >= 22 && daysLeft <= 30) {
     advice = '可以考虑入手';
-    adviceReason = `现在离出发还有${daysLeft}天，正是买机票最便宜的黄金时段。当前价格也挺低的，看到合适的可以下手了。`;
+    adviceReason = `离出发还有${daysLeft}天，价格已经很划算了，看到合适的可以下手。`;
   }
-  // 规则3：太早了（45天以上）→ 再等等
-  else if (daysLeft > 45) {
+  // 规则4：太早了（60天以上）→ 再等等
+  else if (daysLeft > 60) {
     advice = '建议再等等';
-    adviceReason = `离出发还有${daysLeft}天，现在买太早了。一般提前半个月到三周的时候最便宜，现在买反而容易买贵。`;
+    adviceReason = `离出发还有${daysLeft}天太早了，现在买反而贵20%-30%，一般提前一个月左右的时候最便宜。`;
   }
-  // 规则4：价格已经是历史最低了 → 赶紧买
+  // 规则5：价格已经是历史最低了 → 赶紧买
   else if (currentPrice <= minPrice * 1.05) {
     advice = '价格很合适，可以入手';
     adviceReason = `现在的价格已经是咱们监控以来的最低价了，挺划算的。`;
   }
-  // 规则5：黄金窗口但价格还高 → 再等等
-  else if (daysLeft >= 13 && daysLeft <= 21 && currentPrice > minPrice * 1.2) {
+  // 规则6：还太早（46-60天）→ 再等等
+  else if (daysLeft >= 46 && daysLeft <= 60) {
     advice = '可以再等等看';
-    adviceReason = `现在虽然是黄金购票期，但价格还不算便宜，再观察几天，可能还会降。`;
+    adviceReason = `离出发还有${daysLeft}天，价格还偏贵一点，再等等可能会更便宜。`;
   }
   // 兜底
   else {

@@ -1,6 +1,6 @@
 """Database setup and models."""
 from datetime import datetime
-from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, Boolean, Text, ForeignKey, JSON
+from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, Boolean, ForeignKey, JSON
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship
 from app.config import settings
 
@@ -24,33 +24,28 @@ class Monitor(Base):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     owner = relationship("User", back_populates="monitors")
 
-    # 航线
-    departure_city = Column(String(100), nullable=False)   # e.g. 成都
-    arrival_city = Column(String(100), nullable=False)      # e.g. 上海
-    departure_code = Column(String(10))                     # CTU/TFU
-    arrival_code = Column(String(10))                        # PVG/SHA
+    # 航线（仅用城市名，三字码在 scheduler 内转换）
+    departure_city = Column(String(100), nullable=False)
+    arrival_city = Column(String(100), nullable=False)
 
-    # 日期范围
-    departure_date_start = Column(String(20), nullable=False)  # 2026-01-15
+    # 出发日期范围（单程；单日时 end == start）
+    departure_date_start = Column(String(20), nullable=False)
     departure_date_end = Column(String(20), nullable=False)
-    return_date_start = Column(String(20), nullable=True)      # 往返
-    return_date_end = Column(String(20), nullable=True)
 
     # 偏好
-    cabin_class = Column(String(20), default="economy")  # economy/business/first
+    cabin_class = Column(String(20), default="economy")
     direct_only = Column(Boolean, default=False)
-    baggage_required = Column(Boolean, default=False)    # 需要免费托运
-    max_price = Column(Integer, nullable=True)            # 价格上限
-    departure_time_windows = Column(JSON, default=list)  # [[6,12],[18,23]] 出发时段
-    arrival_time_windows = Column(JSON, default=list)    # 到达时段
-    preferred_airlines = Column(JSON, default=list)
-    excluded_flights = Column(JSON, default=list)        # 被用户剔除的航班 [{flight_no, date}]
+    baggage_required = Column(Boolean, default=False)
+    max_price = Column(Integer, nullable=True)
+    departure_time_windows = Column(JSON, default=list)
+    arrival_time_windows = Column(JSON, default=list)
+    excluded_flights = Column(JSON, default=list)
 
     # 状态
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     last_checked_at = Column(DateTime, nullable=True)
-    best_price_ever = Column(Float, nullable=True)        # 历史最低价
+    best_price_ever = Column(Float, nullable=True)
     last_notified_at = Column(DateTime, nullable=True)
     last_notified_price = Column(Float, nullable=True)
 
@@ -65,18 +60,12 @@ class PriceSample(Base):
 
     checked_at = Column(DateTime, default=datetime.utcnow, index=True)
     departure_date = Column(String(20))
-    return_date = Column(String(20), nullable=True)
 
-    # 各平台最低价
-    ctrip_price = Column(Float, nullable=True)
-    qunar_price = Column(Float, nullable=True)
-    fliggy_price = Column(Float, nullable=True)
-    tongcheng_price = Column(Float, nullable=True)
     best_price = Column(Float, nullable=False)
     best_platform = Column(String(50))
 
-    # 推荐航班详情 JSON
-    flight_detail = Column(JSON)  # {flight_no, airline, dep_time, arr_time, duration, stops, baggage, link}
+    # 完整航班详情（后端已过滤、排序）
+    flight_detail = Column(JSON)
 
 
 class EmailCode(Base):

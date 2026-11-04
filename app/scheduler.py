@@ -4,8 +4,8 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 from app.models import SessionLocal, Monitor, PriceSample
 from app.crawlers.fliggy_api import FliggyCrawler
-from app.crawlers.ctrip import CtripCrawler
 from app.analyzer import should_notify
+from app.airlines import has_free_baggage
 from app.email_service import send_price_alert
 from app.config import settings
 
@@ -27,6 +27,59 @@ CITY_NAME_TO_CODE = {
 }
 
 
+def _parse_date_range(m: Monitor) -> list[str]:
+    """从监控任务解析出要爬取的日期列表，对空值/异常值做容错。"""
+    start = (m.departure_date_start or "").strip()
+    end = (m.departure_date_end or "").strip()
+
+    if not start:
+        raise ValueError("departure_date_start 为空")
+
+    start_date = datetime.strptime(start, "%Y-%m-%d").date()
+    # 结束日期为空或异常时，退化为单日
+    if not end:
+        end_date = start_date
+    else:
+        end_date = datetime.strptime(end, "%Y-%m-%d").date()
+
+    # 防止结束早于开始
+    if end_date < start_date:
+        end_date = start_date
+
+    date_list = []
+    current = start_date
+    while current <= end_date:
+        date_list.append(current.strftime("%Y-%m-%d"))
+        current += timedelta(days=1)
+    return date_list
+
+
+def _get_hours(time_str: str):
+    """从时间字符串提取小时数。"""
+    if not time_str:
+        return None
+    try:
+        if "T" in time_str:
+            time_part = time_str.split("T")[1]
+        elif " " in time_str:
+            time_part = time_str.split(" ")[1]
+        else:
+            time_part = time_str
+        return int(time_part.split(":")[0])
+    except Exception:
+        return None
+
+
+def _in_windows(hour, windows) -> bool:
+    """检查小时是否落在任意一个时段窗口内。"""
+    if hour is None:
+        return False
+    for w in windows:
+        if isinstance(w, list) and len(w) == 2 and w[0] <= hour < w[1]:
+            return True
+    return False
+
+
 async def run_single_monitor(mid: int):
     """Crawl a single monitor and analyze prices."""
     db = SessionLocal()
@@ -38,89 +91,123 @@ async def run_single_monitor(mid: int):
 
         print(f"[scheduler] running single monitor {mid}: {m.departure_city}->{m.arrival_city}")
 
-        # 城市名转三字码
         dep_code = CITY_NAME_TO_CODE.get(m.departure_city, m.departure_city[:3].upper())
         arr_code = CITY_NAME_TO_CODE.get(m.arrival_city, m.arrival_city[:3].upper())
 
-        # 遍历日期范围，爬每一天的价格
-        all_flights = []
-        cheapest_date = m.departure_date_start
-
-        # 生成日期范围列表
-        start_date = datetime.strptime(m.departure_date_start, "%Y-%m-%d").date()
-        end_date = datetime.strptime(m.departure_date_end, "%Y-%m-%d").date()
-        date_list = []
-        current = start_date
-        while current <= end_date:
-            date_list.append(current.strftime("%Y-%m-%d"))
-            current += timedelta(days=1)
-
+        date_list = _parse_date_range(m)
         print(f"[scheduler] crawling {len(date_list)} dates: {date_list}")
 
-        # 飞猪（主源，flyai CLI）- 遍历每一天
-        try:
-            fliggy_crawler = FliggyCrawler()
-            for date_str in date_list:
-                try:
-                    day_flights = fliggy_crawler.search(dep_code, arr_code, date_str)
-                    # 给每个航班加上日期信息
-                    for f in day_flights:
-                        f["date"] = date_str
-                    all_flights.extend(day_flights)
-                    print(f"[scheduler] {date_str}: got {len(day_flights)} flights")
-                except Exception as e:
-                    print(f"[scheduler] {date_str} error: {e}")
-        except Exception as e:
-            print(f"[scheduler] fliggy error: {e}")
+        # 飞猪（flyai CLI），逐天爬取
+        all_flights = []
+        crawler = FliggyCrawler()
+        for date_str in date_list:
+            try:
+                day_flights = crawler.search(dep_code, arr_code, date_str)
+                for f in day_flights:
+                    f["date"] = date_str
+                all_flights.extend(day_flights)
+                print(f"[scheduler] {date_str}: got {len(day_flights)} flights")
+            except Exception as e:
+                print(f"[scheduler] {date_str} error: {e}")
 
         flights = all_flights
 
-        # 只看直飞过滤
+        # 只看直飞
         if m.direct_only:
             before = len(flights)
             flights = [f for f in flights if f.get("is_direct")]
             print(f"[scheduler] direct_only: {before} -> {len(flights)} flights")
 
-        # 过滤掉用户手动剔除的航班
+        # 时段筛选（出发、到达都填了取并集）
+        dep_windows = m.departure_time_windows or []
+        arr_windows = m.arrival_time_windows or []
+        if dep_windows or arr_windows:
+            before = len(flights)
+            filtered = []
+            for f in flights:
+                dep_hour = _get_hours(f.get("dep_time", ""))
+                arr_hour = _get_hours(f.get("arr_time", ""))
+                dep_match = _in_windows(dep_hour, dep_windows) if dep_windows else False
+                arr_match = _in_windows(arr_hour, arr_windows) if arr_windows else False
+
+                if dep_windows and arr_windows:
+                    ok = dep_match or arr_match  # 并集
+                elif dep_windows:
+                    ok = dep_match
+                else:
+                    ok = arr_match
+                if ok:
+                    filtered.append(f)
+            flights = filtered
+            print(f"[scheduler] time_windows: {before} -> {len(flights)} flights")
+
+        # 需要免费托运：剔除廉航和差异化航司
+        if m.baggage_required:
+            before = len(flights)
+            flights = [f for f in flights if has_free_baggage(f.get("airline", ""))]
+            print(f"[scheduler] baggage_required: {before} -> {len(flights)} flights")
+
+        # 过滤用户手动剔除的航班
         excluded = m.excluded_flights or []
         if excluded:
             before = len(flights)
-            flights = [f for f in flights if not any(
-                e["flight_no"] == f.get("flight_no") and e["date"] == f.get("date")
-                for e in excluded
-            )]
+            flights = [
+                f for f in flights
+                if not any(
+                    e["flight_no"] == f.get("flight_no") and e["date"] == f.get("date")
+                    for e in excluded
+                )
+            ]
             print(f"[scheduler] excluded {before - len(flights)} flights")
 
         if not flights:
             print(f"[scheduler] no flights for monitor {m.id}")
+            m.last_checked_at = datetime.utcnow()
+            db.commit()
             return
 
-        # 找最低价和最便宜的日期
-        best_price = min(f["price"] for f in flights)
-        best_platform = next(f["platform"] for f in flights if f["price"] == best_price)
-        cheapest_date = next(f["date"] for f in flights if f["price"] == best_price)
-
-        # 所有航班放在一起，按价格从低到高排序
+        # 所有日期航班统一按价格排序
         flights.sort(key=lambda x: x["price"])
+        best_price = flights[0]["price"]
+        best_platform = flights[0]["platform"]
+        cheapest_date = flights[0]["date"]
 
-        # 保存样本
-        sample = PriceSample(
-            monitor_id=m.id,
-            departure_date=cheapest_date,
-            best_price=best_price,
-            best_platform=best_platform,
-            flight_detail=flights[:50],  # 存最多50个航班，覆盖所有日期
+        # 样本去重：距上一条样本不足10分钟且价格相同，则不重复落库
+        last_sample = (
+            db.query(PriceSample)
+            .filter(PriceSample.monitor_id == m.id)
+            .order_by(PriceSample.checked_at.desc())
+            .first()
         )
-        db.add(sample)
+        now = datetime.utcnow()
+        save_new = True
+        if last_sample and last_sample.best_price == best_price:
+            gap_min = (now - last_sample.checked_at).total_seconds() / 60
+            if gap_min < 10:
+                save_new = False
 
-        # 更新监控状态
-        m.last_checked_at = datetime.utcnow()
+        if save_new:
+            sample = PriceSample(
+                monitor_id=m.id,
+                departure_date=cheapest_date,
+                best_price=best_price,
+                best_platform=best_platform,
+                flight_detail=flights[:50],
+            )
+            db.add(sample)
+
+        m.last_checked_at = now
         if not m.best_price_ever or best_price < m.best_price_ever:
             m.best_price_ever = best_price
 
-        # 分析是否需要提醒
-        samples = db.query(PriceSample).filter(PriceSample.monitor_id == m.id).order_by(PriceSample.checked_at).all()
-        should, reason, analysis = should_notify(m, samples, best_price)
+        # 邮件提醒判断
+        all_samples = (
+            db.query(PriceSample)
+            .filter(PriceSample.monitor_id == m.id)
+            .order_by(PriceSample.checked_at)
+            .all()
+        )
+        should, reason, analysis = should_notify(m, all_samples, best_price)
 
         if should:
             user_email = m.owner.email
@@ -130,16 +217,17 @@ async def run_single_monitor(mid: int):
                     "departure_city": m.departure_city,
                     "arrival_city": m.arrival_city,
                     "departure_date": m.departure_date_start,
+                    "best_price_ever": m.best_price_ever,
                 },
                 flights=flights[:5],
                 analysis=analysis,
             )
-            m.last_notified_at = datetime.utcnow()
+            m.last_notified_at = now
             m.last_notified_price = best_price
             print(f"[scheduler] ALERT sent to {user_email}: {m.departure_city}->{m.arrival_city} ¥{best_price}")
 
         db.commit()
-        print(f"[scheduler] monitor {mid} done, cheapest: ¥{best_price}")
+        print(f"[scheduler] monitor {mid} done, cheapest: ¥{best_price}, saved_new={save_new}")
     except Exception as e:
         print(f"[scheduler] monitor {mid} error: {e}")
         db.rollback()
@@ -148,12 +236,11 @@ async def run_single_monitor(mid: int):
 
 
 async def run_monitor_job():
-    """Crawl all active monitors and analyze prices."""
+    """Crawl all active monitors."""
     db = SessionLocal()
     try:
         monitors = db.query(Monitor).filter(Monitor.is_active == True).all()
         print(f"[scheduler] {datetime.now()} checking {len(monitors)} monitors")
-
         for m in monitors:
             await run_single_monitor(m.id)
     finally:

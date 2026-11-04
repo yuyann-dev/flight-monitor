@@ -2,6 +2,7 @@
 import json
 import shutil
 import subprocess
+from app.airlines import classify, baggage_text
 
 
 # 城市三字码 → 飞猪城市名映射
@@ -82,16 +83,24 @@ class FliggyCrawler:
                 first_seg = segments[0]
                 last_seg = segments[-1]
 
+                airline_name = first_seg.get("marketingTransportName", "")
+                is_direct = journey.get("journeyType") == "直达"
+                # 经停/中转次数：段数减一
+                stops = max(0, len(segments) - 1)
+
                 flights.append({
                     "platform": "飞猪",
                     "price": int(price),
                     "flight_no": first_seg.get("marketingTransportNo", ""),
-                    "airline": first_seg.get("marketingTransportName", ""),
+                    "airline": airline_name,
+                    "airline_category": classify(airline_name),
+                    "baggage_text": baggage_text(airline_name),
                     "dep_time": first_seg.get("depDateTime", ""),
                     "arr_time": last_seg.get("arrDateTime", ""),
                     "dep_airport": first_seg.get("depStationName", ""),
                     "arr_airport": last_seg.get("arrStationName", ""),
-                    "is_direct": journey.get("journeyType") == "直达",
+                    "is_direct": is_direct,
+                    "stops": stops,
                     "link": item.get("jumpUrl", ""),
                 })
 

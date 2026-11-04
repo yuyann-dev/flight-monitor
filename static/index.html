@@ -38,7 +38,6 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 .form-grid .full { grid-column: 1 / -1; }
 .form-row { display: flex; gap: 12px; align-items: center; }
-.form-row label { font-size: 14px; min-width: 100px; }
 
 /* Monitor list */
 .monitor-item { border: 1px solid #eee; border-radius: 10px; padding: 16px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; }
@@ -66,6 +65,20 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
 .suggest-item:hover, .suggest-item.active { background: #f0f7ff; }
 .suggest-item small { color: #999; margin-left: 8px; }
 
+/* Flight card */
+.flight-card { border: 1px solid #eee; border-radius: 10px; padding: 14px; margin-bottom: 10px; }
+.flight-top { display: flex; justify-content: space-between; align-items: flex-start; }
+.flight-no { font-weight: 600; margin-bottom: 4px; }
+.tag-direct { font-size: 11px; background: #e8f5e9; color: #2e7d32; padding: 2px 6px; border-radius: 4px; margin-left: 6px; }
+.tag-transit { font-size: 11px; background: #fff3e0; color: #e65100; padding: 2px 6px; border-radius: 4px; margin-left: 6px; }
+.flight-route { font-size: 13px; color: #666; }
+.flight-bag { font-size: 11px; color: #999; margin-top: 4px; }
+.flight-price-box { text-align: right; margin-right: 12px; }
+.flight-price { font-size: 20px; font-weight: bold; color: #e74c3c; }
+.flight-fee { font-size: 11px; color: #999; }
+.flight-actions { display: flex; gap: 8px; margin-top: 10px; }
+.flight-date { font-size: 12px; color: #999; margin-bottom: 4px; }
+
 /* Responsive */
 @media (max-width: 768px) {
   .login-wrap { margin: 40px 16px; padding: 24px; }
@@ -75,21 +88,8 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
   .card { padding: 16px; }
   .form-grid { grid-template-columns: 1fr; }
   .monitor-item { flex-direction: column; align-items: flex-start; gap: 10px; }
-  .monitor-price { text-align: left; }
   .form-row { flex-direction: column; align-items: flex-start; gap: 8px; }
-  /* 详情页移动端适配 */
-  #monitorDetailCard > div[style*="grid-template-columns: repeat(4"] {
-    grid-template-columns: repeat(2, 1fr) !important;
-  }
-  #monitorDetailCard div[style*="border: 1px solid #eee"] {
-    flex-direction: column !important;
-    align-items: flex-start !important;
-    gap: 10px !important;
-  }
-  #monitorDetailCard div[style*="text-align: right"] {
-    text-align: left !important;
-    margin-right: 0 !important;
-  }
+  .stat-grid { grid-template-columns: repeat(2, 1fr) !important; }
 }
 </style>
 </head>
@@ -97,7 +97,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
 
 <!-- Login Page -->
 <div id="loginPage" class="login-wrap">
-  <h1>✈️ 机票监控</h1>
+  <h1>机票监控</h1>
   <p>低价不错过，自动提醒</p>
   <div id="loginStep1">
     <div class="input-group">
@@ -121,7 +121,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
 <!-- Main App -->
 <div id="appPage" class="hidden">
   <div class="app-header">
-    <h1>✈️ 机票监控</h1>
+    <h1>机票监控</h1>
     <div class="user-info">
       <span id="userEmail"></span>
       <button class="btn btn-outline btn-sm" onclick="logout()" style="margin-left:12px">退出</button>
@@ -129,18 +129,16 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
   </div>
   <div class="container">
 
-    <!-- Monitor List -->
+    <!-- Monitor List (上) -->
     <div class="card" id="monitorListCard">
       <h2>我的监控</h2>
       <div id="monitorList"></div>
     </div>
 
-    <!-- New Monitor Form -->
+    <!-- New Monitor Form (下) -->
     <div class="card" id="newFormCard" style="margin-top: 20px;">
       <h2>新建监控任务</h2>
-      <div style="background:#fff3e0; padding:10px; border-radius:6px; font-size:12px; color:#e65100; margin-bottom:16px;">
-        注：目前仅支持监控出发前约30天内的航班，太远的日期暂时搜不到数据。
-      </div>
+      <div id="rangeNotice" style="background:#fff3e0; padding:10px; border-radius:6px; font-size:12px; color:#e65100; margin-bottom:16px;"></div>
       <div class="form-grid">
         <div class="input-group" style="position:relative">
           <label>出发城市</label>
@@ -157,7 +155,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
           <input type="date" id="depDateStart">
         </div>
         <div class="input-group">
-          <label>出发日期（止）</label>
+          <label>出发日期（止，不填则只看单日）</label>
           <input type="date" id="depDateEnd">
         </div>
         <div class="input-group">
@@ -171,10 +169,10 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
         <div class="input-group">
           <label>心理价位（裸票价格，不含机建燃油）</label>
           <input type="number" id="maxPrice" placeholder="如 500">
-          <small style="color:#999; font-size:12px;">机建+燃油另加约130-190元（800km以上）。到这个价或系统预判最低时都会发邮件提醒。</small>
+          <small style="color:#999; font-size:12px;">机建+燃油另算，到这个价或系统预判低价时都会发邮件提醒。</small>
         </div>
         <div class="input-group">
-          <label>出发时段（点标签选择，可自定义添加）</label>
+          <label>出发时段（点标签选择，可自定义）</label>
           <div id="depTimeBoxes">
             <span class="tw-chip" data-val="0-6" onclick="toggleChip(this)">凌晨0-6</span>
             <span class="tw-chip" data-val="6-12" onclick="toggleChip(this)">上午6-12</span>
@@ -189,7 +187,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
           </div>
         </div>
         <div class="input-group">
-          <label>到达时段（点标签选择，可自定义添加）</label>
+          <label>到达时段（点标签选择，可自定义）</label>
           <div id="arrTimeBoxes">
             <span class="tw-chip" data-val="0-6" onclick="toggleChip(this)">凌晨0-6</span>
             <span class="tw-chip" data-val="6-12" onclick="toggleChip(this)">上午6-12</span>
@@ -209,9 +207,9 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
         </div>
       </div>
       <div style="background:#f8f9fa; padding:12px; border-radius:8px; margin:16px 0; font-size:13px; color:#666;">
-        <b>提醒规则：</b>满足任一条件即发邮件到你邮箱——<br>
-        ① 价格降到你设定的心理价位以下；<br>
-        ② 系统根据历史走势预判当前就是近期最低价（后续大概率不会更低）。<br>
+        <b>提醒规则：</b>满足任一条件即发邮件——<br>
+        ① 价格降到你设定的心理价位；<br>
+        ② 系统综合时间阶段和价格走势，判断当前就是近期低价。<br>
         同一航线6小时内不重复打扰，除非价格再降5%以上。
       </div>
       <button class="btn btn-primary" onclick="createMonitor()">开始监控</button>
@@ -223,15 +221,15 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
         <button class="btn btn-outline btn-sm" onclick="backToList()">← 返回列表</button>
         <div style="display: flex; gap: 8px;">
           <button class="btn btn-primary btn-sm" onclick="refreshDetail()">立即刷新</button>
-          <button class="btn btn-danger btn-sm" id="detailStopBtn" onclick="stopMonitor(currentMonitorId)">停止监控</button>
+          <button class="btn btn-danger btn-sm" onclick="stopMonitor(currentMonitorId)">停止监控</button>
         </div>
       </div>
-      
+
       <h2 id="detailTitle" style="margin-bottom: 4px;"></h2>
       <div id="detailSubtitle" style="font-size: 14px; color: #999; margin-bottom: 20px;"></div>
 
       <!-- 统计卡片 -->
-      <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 24px;">
+      <div class="stat-grid" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 24px;">
         <div style="background: #fff5f5; padding: 16px; border-radius: 10px; text-align: center;">
           <div style="font-size: 12px; color: #999;">当前最低</div>
           <div style="font-size: 22px; font-weight: bold; color: #e74c3c;" id="detailCurrentPrice">-</div>
@@ -246,7 +244,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
         </div>
         <div style="background: #fafafa; padding: 16px; border-radius: 10px; text-align: center;">
           <div style="font-size: 12px; color: #999;">机建燃油</div>
-          <div style="font-size: 22px; font-weight: bold; color: #666;" id="detailFees">¥190</div>
+          <div style="font-size: 22px; font-weight: bold; color: #666;" id="detailFees">-</div>
         </div>
       </div>
 
@@ -255,11 +253,6 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
         <div style="font-size: 13px; color: #666; margin-bottom: 8px;">购买建议</div>
         <div id="buyAdvice" style="font-size: 16px; font-weight: 600; margin-bottom: 6px; color: #2c3e50;">分析中...</div>
         <div id="buyAdviceReason" style="font-size: 13px; color: #666; line-height: 1.6;"></div>
-      </div>
-
-      <!-- 日期范围提示 -->
-      <div style="margin-bottom: 24px; padding: 12px; background: #fff3e0; border-radius: 8px; font-size: 12px; color: #e65100;">
-        注：太远的日期（如提前40天以上）暂时搜不到数据，系统会持续监控直到能获取到航班信息。
       </div>
 
       <!-- 价格走势 -->
@@ -272,7 +265,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
 
       <!-- 航班列表 -->
       <div>
-        <h3 style="font-size: 16px; margin-bottom: 12px;">最新航班（飞猪）</h3>
+        <h3 style="font-size: 16px; margin-bottom: 12px;">最新航班（飞猪，所有日期按价格排序）</h3>
         <div id="detailFlights"></div>
       </div>
     </div>
@@ -282,6 +275,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
 
 <script>
 const API = '/flight';
+let currentFees = { total_fee: 190 };
 
 async function api(path, opts={}) {
   const res = await fetch(API + path, { credentials: 'include', headers: {'Content-Type':'application/json'}, ...opts });
@@ -296,6 +290,24 @@ function toast(msg) {
   setTimeout(() => t.remove(), 2500);
 }
 
+// 时间工具：ISO 字符串 → HH:MM（稳健解析，不写死位置）
+function formatHM(isoStr) {
+  if (!isoStr) return '--';
+  try {
+    const d = new Date(isoStr);
+    if (isNaN(d.getTime())) {
+      // 兜底：直接截取
+      return isoStr.includes('T') ? isoStr.split('T')[1].slice(0,5) : isoStr.slice(0,5);
+    }
+    return String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
+  } catch(e) { return '--'; }
+}
+
+function formatTime(isoStr) {
+  const d = new Date(isoStr);
+  return `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+}
+
 function showLogin() {
   document.getElementById('loginPage').classList.remove('hidden');
   document.getElementById('appPage').classList.add('hidden');
@@ -303,6 +315,7 @@ function showLogin() {
 function showApp() {
   document.getElementById('loginPage').classList.add('hidden');
   document.getElementById('appPage').classList.remove('hidden');
+  isDetailView = false;
   loadMonitors();
 }
 
@@ -336,14 +349,14 @@ let priceChart = null;
 async function loadMonitors() {
   const list = await api('/api/monitors');
   const el = document.getElementById('monitorList');
-  if (!list.length) { el.innerHTML = '<div class="empty">暂无监控任务，上方新建一个吧</div>'; return; }
+  if (!list.length) { el.innerHTML = '<div class="empty">暂无监控任务，下方新建一个吧</div>'; return; }
   el.innerHTML = list.map(m => `
     <div class="monitor-item" onclick="showDetail(${m.id})" style="cursor:pointer;">
       <div>
         <div class="monitor-route">${m.departure_city} → ${m.arrival_city}</div>
         <div class="monitor-meta">
           ${m.departure_date_start}${m.departure_date_end !== m.departure_date_start ? ' ~ ' + m.departure_date_end : ''}
-          ${m.return_date_start ? ' · 往返' : ' 单程'}
+          · 单程
           ${m.last_checked ? ' · 最近更新 ' + formatTime(m.last_checked) : ''}
         </div>
       </div>
@@ -355,21 +368,22 @@ async function loadMonitors() {
   `).join('');
 }
 
-function formatTime(isoStr) {
-  const d = new Date(isoStr);
-  // 浏览器自动处理时区，直接格式化
-  return `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
-}
+// 当前是否处于详情页（用于浏览器/手机返回键判断）
+let isDetailView = false;
 
-async function showDetail(mid) {
+// 实际渲染：切换到详情页（不操作浏览器历史）
+async function _renderDetail(mid) {
   currentMonitorId = mid;
+  isDetailView = true;
   document.getElementById('monitorListCard').classList.add('hidden');
   document.getElementById('newFormCard').classList.add('hidden');
   document.getElementById('monitorDetailCard').classList.remove('hidden');
   await loadDetail(mid);
 }
 
-function backToList() {
+// 实际渲染：回到列表（不操作浏览器历史）
+function _renderList() {
+  isDetailView = false;
   document.getElementById('monitorDetailCard').classList.add('hidden');
   document.getElementById('monitorListCard').classList.remove('hidden');
   document.getElementById('newFormCard').classList.remove('hidden');
@@ -377,14 +391,37 @@ function backToList() {
   window.scrollTo(0, 0);
 }
 
+// 入口：点监控项 / 创建后进入详情（压入一条历史，手机返回键可回到列表）
+async function showDetail(mid) {
+  await _renderDetail(mid);
+  history.pushState({ view: 'detail', mid: mid }, '');
+}
+
+// 入口：点“返回列表”按钮（走浏览器历史，由 popstate 统一渲染）
+function backToList() {
+  if (isDetailView) {
+    history.back();
+  } else {
+    _renderList();
+  }
+}
+
+// 手机系统返回键 / 浏览器后退：详情页时回到列表，列表页时不拦截（退出网站）
+window.addEventListener('popstate', () => {
+  if (isDetailView) {
+    _renderList();
+  }
+});
+
 async function excludeFlight(flightNo, date) {
-  if (!confirm(`确定不再关注 ${flightNo} (${date}) 吗？以后这个航班就不会出现在列表里了。`)) return;
+  // 二次确认
+  if (!confirm(`确定不再关注 ${flightNo}（${date}）吗？确认后这个航班将不再出现在列表里。`)) return;
   try {
     await api(`/api/monitors/${currentMonitorId}/exclude-flight`, {
       method: 'POST',
       body: JSON.stringify({flight_no: flightNo, date: date})
     });
-    toast('已剔除，下次刷新就不会再显示了');
+    toast('已剔除，列表已更新');
     await loadDetail(currentMonitorId);
   } catch(e) {
     toast('操作失败: ' + e.message);
@@ -407,42 +444,6 @@ async function refreshDetail() {
   }
 }
 
-// 全服务航司（经济舱标准票价都有20kg免费托运）
-// 已确认：国航、东航、南航、海航、川航、深航、厦航、山东航、上航、中联航、青岛航
-const FULL_SERVICE_AIRLINES = ['国航', '东航', '南航', '海航', '川航', '深航', '厦航', '山东航', '上航', '中联航', '青岛航'];
-// 差异化航司（全价舱有20kg，折扣舱可能无）
-// 已确认：西部航空、祥鹏航空、首都航空、天津航空、乌鲁木齐航空
-const DIFFERENTIATED_AIRLINES = ['西部航空', '祥鹏航空', '首都航空', '天津航空', '乌鲁木齐航空'];
-// 廉航（经济舱基本无免费托运）
-// 已确认：春秋航空、九元航空
-const ULTRA_LOW_COST_AIRLINES = ['春秋航空', '九元航空'];
-
-function getBaggageInfo(airlineName, cabinClass) {
-  const isEconomy = cabinClass === 'economy' || !cabinClass;
-
-  // 先判断是不是廉航（最严格的优先级）
-  for (const a of ULTRA_LOW_COST_AIRLINES) {
-    if (airlineName.includes(a)) return `廉航：经济舱通常无免费托运，需付费购买（具体以购买页为准）`;
-  }
-
-  // 再判断是不是差异化航司
-  for (const a of DIFFERENTIATED_AIRLINES) {
-    if (airlineName.includes(a)) {
-      if (isEconomy) {
-        return `差异化航司：折扣经济舱通常无免费托运（具体以购买页为准）`;
-      }
-      return `差异化航司：全价舱有免费托运（具体以购买页为准）`;
-    }
-  }
-
-  // 最后才是全服务航司
-  for (const a of FULL_SERVICE_AIRLINES) {
-    if (airlineName.includes(a)) return `全服务航司：经济舱免费托运20kg（具体以购买页为准）`;
-  }
-
-  return '行李额度请以购买页为准';
-}
-
 async function loadDetail(mid) {
   const list = await api('/api/monitors');
   const m = list.find(x => x.id === mid);
@@ -453,9 +454,8 @@ async function loadDetail(mid) {
   if (m.departure_date_end && m.departure_date_end !== m.departure_date_start) {
     dateText += ` ~ ${m.departure_date_end}`;
   }
-  dateText += m.return_date_start ? ' · 往返' : ' · 单程';
-  document.getElementById('detailSubtitle').textContent = `${dateText} · ${cabinText}`;
-  // 当前价格从最新一条 history 取，不是 best_price_ever（那是历史最低）
+  document.getElementById('detailSubtitle').textContent = `${dateText} · 单程 · ${cabinText}`;
+
   const history = await api(`/api/monitors/${mid}/history`);
   const latestPrice = history.length ? history[history.length - 1].price : null;
   document.getElementById('detailCurrentPrice').textContent = latestPrice ? `¥${latestPrice}` : '采集中...';
@@ -465,54 +465,11 @@ async function loadDetail(mid) {
   const labels = history.map(h => formatTime(h.time));
   const prices = history.map(h => h.price);
 
-  // 计算购买建议（大白话，基于1.2亿条真实订单数据的U型曲线）
-  const currentPrice = prices[prices.length - 1];
-  const minPrice = Math.min(...prices);
-
-  // 距出发天数（用日期范围的结束日期算）
-  const depDate = new Date(m.departure_date_end || m.departure_date_start);
-  const today = new Date();
-  const daysLeft = Math.ceil((depDate - today) / (1000 * 60 * 24));
-
-  let advice, adviceReason;
-
-  // 规则1：临期（7天以内）→ 赶紧买
-  if (daysLeft < 7) {
-    advice = '建议尽快购买';
-    adviceReason = `离出发只剩${daysLeft}天了，这个时候机票只会涨价不会降价，越晚买越贵。`;
-  }
-  // 规则2：黄金窗口（31-45天）→ 最划算
-  else if (daysLeft >= 31 && daysLeft <= 45) {
-    advice = '正是好时候，可以入手';
-    adviceReason = `离出发还有${daysLeft}天，正是买机票最便宜的黄金时段（根据上亿条真实订单统计，这个时候价格最低）。`;
-  }
-  // 规则3：接近黄金窗口（22-30天）→ 可以开始关注
-  else if (daysLeft >= 22 && daysLeft <= 30) {
-    advice = '可以考虑入手';
-    adviceReason = `离出发还有${daysLeft}天，价格已经很划算了，看到合适的可以下手。`;
-  }
-  // 规则4：太早了（60天以上）→ 再等等
-  else if (daysLeft > 60) {
-    advice = '建议再等等';
-    adviceReason = `离出发还有${daysLeft}天太早了，现在买反而贵20%-30%，一般提前一个月左右的时候最便宜。`;
-  }
-  // 规则5：价格已经是历史最低了 → 赶紧买
-  else if (currentPrice <= minPrice * 1.05) {
-    advice = '价格很合适，可以入手';
-    adviceReason = `现在的价格已经是咱们监控以来的最低价了，挺划算的。`;
-  }
-  // 规则6：还太早（46-60天）→ 再等等
-  else if (daysLeft >= 46 && daysLeft <= 60) {
-    advice = '可以再等等看';
-    adviceReason = `离出发还有${daysLeft}天，价格还偏贵一点，再等等可能会更便宜。`;
-  }
-  // 兜底
-  else {
-    advice = '建议继续观望';
-    adviceReason = `当前价格不便宜也不贵，可以再等等看会不会降价。`;
-  }
-
-  document.getElementById('buyAdvice').textContent = advice;
+  // 购买建议：后端引擎，前端只展示
+  const adviceData = await api(`/api/monitors/${mid}/advice`);
+  let adviceReason = adviceData.reasons.join('<br>');
+  adviceReason += `<br><span style="font-size:11px; color:#999; margin-top:4px; display:inline-block;">注：以上为基于历史数据的统计判断，实际价格受节假日、供需等因素影响，仅供参考</span>`;
+  document.getElementById('buyAdvice').textContent = adviceData.advice;
   document.getElementById('buyAdviceReason').innerHTML = adviceReason;
 
   // 折线图
@@ -544,60 +501,38 @@ async function loadDetail(mid) {
     }
   });
 
-  // 航班列表 - 从最新一条 sample 的 flight_detail 里取
+  // 航班列表：后端已完成所有过滤和排序，前端直接渲染
   const flightsEl = document.getElementById('detailFlights');
-  flightsEl.innerHTML = '<div style="text-align:center; color:#aaa; padding: 20px;">加载中...</div>';
+  flightsEl.innerHTML = '<div style="text-align:center; color:#aaa; padding:20px;">加载中...</div>';
   try {
     const detailRes = await api(`/api/monitors/${mid}/latest-detail`);
-    console.log('latest-detail response:', detailRes);
+    currentFees = detailRes.fees || currentFees;
+    document.getElementById('detailFees').textContent = `¥${currentFees.total_fee}`;
     const flights = detailRes.flights || [];
-    console.log('flights count:', flights.length);
-    if (!flights.length) {
-      flightsEl.innerHTML = '<div style="text-align:center; color:#e67e22; padding: 20px;">暂未获取到航班数据<br><small style="color:#999;">可能原因：日期太远（flyai免费版仅支持近期航班）、或航线暂无机票</small></div>';
-    } else {
-      // 如果勾选了需要免费托运行李，只剔除确定是廉航的（春秋、九元）
-      // 差异化航司保留，但在行李说明里标注清楚风险
-      let filteredFlights = flights;
-      if (m.baggage_required) {
-        filteredFlights = flights.filter(f => {
-          const airline = f.airline || '';
-          // 只剔除100%确定是廉航的
-          for (const a of ULTRA_LOW_COST_AIRLINES) {
-            if (airline.includes(a)) return false;
-          }
-          return true;
-        });
-      }
 
-      // 过滤后重新计算最低价，更新当前最低显示
-      if (filteredFlights.length > 0) {
-        const filteredMinPrice = Math.min(...filteredFlights.map(f => f.price));
-        document.getElementById('detailCurrentPrice').textContent = `¥${filteredMinPrice}`;
-      }
-      flightsEl.innerHTML = filteredFlights.map(f => `
-        <div style="border: 1px solid #eee; border-radius: 10px; padding: 14px; margin-bottom: 10px;">
-          <div style="display: flex; justify-content: space-between; align-items: flex-start;">
-            <div style="flex: 1;">
-              <div style="font-size: 12px; color: #999; margin-bottom: 4px;">
-                ${f.date || ''}
-              </div>
-              <div style="font-weight: 600; margin-bottom: 4px;">
+    if (!flights.length) {
+      flightsEl.innerHTML = '<div style="text-align:center; color:#e67e22; padding:20px;">暂未获取到航班数据<br><span style="color:#999; font-size:12px;">日期可能超出可查询范围，系统会持续监控</span></div>';
+    } else {
+      flightsEl.innerHTML = flights.map(f => `
+        <div class="flight-card">
+          <div class="flight-top">
+            <div style="flex:1;">
+              <div class="flight-date">${f.date || ''}</div>
+              <div class="flight-no">
                 ${f.airline || '未知航司'} ${f.flight_no || ''}
-                ${f.is_direct ? '<span style="font-size:11px; background:#e8f5e9; color:#2e7d32; padding:2px 6px; border-radius:4px; margin-left:6px;">直飞</span>' : '<span style="font-size:11px; background:#fff3e0; color:#e65100; padding:2px 6px; border-radius:4px; margin-left:6px;">中转</span>'}
+                ${f.is_direct ? '<span class="tag-direct">直飞</span>' : '<span class="tag-transit">中转</span>'}
               </div>
-              <div style="font-size: 13px; color: #666;">
-                ${f.dep_time ? f.dep_time.substring(11, 16) : '--'} ${f.dep_airport || ''} → ${f.arr_time ? f.arr_time.substring(11, 16) : '--'} ${f.arr_airport || ''}
+              <div class="flight-route">
+                ${formatHM(f.dep_time)} ${f.dep_airport || ''} → ${formatHM(f.arr_time)} ${f.arr_airport || ''}
               </div>
-              <div style="font-size: 11px; color: #999; margin-top: 4px;">
-                ${getBaggageInfo(f.airline || '', m.cabin_class)}
-              </div>
+              <div class="flight-bag">${f.baggage_text || '行李额度请以购买页为准'}</div>
             </div>
-            <div style="text-align: right; margin-right: 12px;">
-              <div style="font-size: 20px; font-weight: bold; color: #e74c3c;">¥${f.price}</div>
-              <div style="font-size: 11px; color: #999;">+机建燃油¥190</div>
+            <div class="flight-price-box">
+              <div class="flight-price">¥${f.price}</div>
+              <div class="flight-fee">+机建燃油¥${currentFees.total_fee}</div>
             </div>
           </div>
-          <div style="display: flex; gap: 8px; margin-top:10px;">
+          <div class="flight-actions">
             ${f.link ? `<a href="${f.link}" target="_blank" class="btn btn-primary btn-sm" style="flex:1; text-align:center;">去购买</a>` : ''}
             <button class="btn btn-outline btn-sm" onclick="excludeFlight('${f.flight_no}', '${f.date}')" style="color:#999;">不关注</button>
           </div>
@@ -605,42 +540,18 @@ async function loadDetail(mid) {
       `).join('');
     }
   } catch(e) {
-    flightsEl.innerHTML = '<div style="text-align:center; color:#e74c3c; padding: 20px;">加载失败: ' + e.message + '</div>';
+    flightsEl.innerHTML = '<div style="text-align:center; color:#e74c3c; padding:20px;">加载失败: ' + e.message + '</div>';
   }
 
-  // 所有内容渲染完后，滚到顶部
   window.scrollTo(0, 0);
 }
 
-async function queryPrice() {
-  const dep = document.getElementById('depCity').value.trim();
-  const arr = document.getElementById('arrCity').value.trim();
-  const date = document.getElementById('depDateStart').value;
-  if (!dep || !arr || !date) return toast('请先填好城市和出发日期');
-  const btn = event.target;
-  btn.disabled = true;
-  btn.textContent = '查询中...';
-  try {
-    const res = await api('/api/query-price', {method:'POST', body: JSON.stringify({dep, arr, date})});
-    if (res.best_price) {
-      document.getElementById('maxPrice').value = res.suggested_price || res.best_price;
-      toast(`当前最低¥${res.best_price}，建议心理价位¥${res.suggested_price}（${res.tip||''}）`);
-    } else {
-      toast('暂未查到价格，可能是页面结构变了，手动填吧');
-    }
-  } catch(e) { toast('查询超时，手动填吧'); }
-  btn.disabled = false;
-  btn.textContent = '查当前价推荐';
-}
-
-function toggleChip(el) {
-  el.classList.toggle('active');
-}
+function toggleChip(el) { el.classList.toggle('active'); }
 
 function addTw(boxId, startId, endId) {
   const s = parseInt(document.getElementById(startId).value);
   const e = parseInt(document.getElementById(endId).value);
-  if (!s || !e || s < 0 || e > 24 || s >= e) return toast('请输入有效时段，如 7-10');
+  if (isNaN(s) || isNaN(e) || s < 0 || e > 24 || s >= e) return toast('请输入有效时段，如 7-10');
   const box = document.getElementById(boxId);
   const chip = document.createElement('span');
   chip.className = 'tw-chip active';
@@ -652,15 +563,17 @@ function addTw(boxId, startId, endId) {
 }
 
 async function createMonitor() {
-  const getWindows = boxId => {
-    return Array.from(document.querySelectorAll('#' + boxId + ' .tw-chip.active'))
+  const getWindows = boxId =>
+    Array.from(document.querySelectorAll('#' + boxId + ' .tw-chip.active'))
       .map(el => el.dataset.val.split('-').map(Number));
-  };
+
+  const start = document.getElementById('depDateStart').value;
+  const end = document.getElementById('depDateEnd').value;
   const body = {
     departure_city: document.getElementById('depCity').value.trim(),
     arrival_city: document.getElementById('arrCity').value.trim(),
-    departure_date_start: document.getElementById('depDateStart').value,
-    departure_date_end: document.getElementById('depDateEnd').value,
+    departure_date_start: start,
+    departure_date_end: end || start,  // 前端也保证空 end 退化为单日
     cabin_class: document.getElementById('cabinClass').value,
     direct_only: document.getElementById('directOnly').checked,
     baggage_required: document.getElementById('baggageRequired').checked,
@@ -670,17 +583,30 @@ async function createMonitor() {
   };
   if (!body.departure_city || !body.arrival_city || !body.departure_date_start) return toast('请填写城市和日期');
   if (body.departure_city === body.arrival_city) return toast('出发城市和到达城市不能相同');
-  await api('/api/monitors', {method:'POST', body: JSON.stringify(body)});
+  const newMonitor = await api('/api/monitors', {method:'POST', body: JSON.stringify(body)});
   toast('监控已开启');
-  loadMonitors();
+  if (newMonitor && newMonitor.id) {
+    showDetail(newMonitor.id);
+  }
 }
 
 async function stopMonitor(id) {
   await api('/api/monitors/' + id, {method:'DELETE'});
   toast('已停止监控');
-  backToList();
-  loadMonitors();
+  await loadMonitors();  // 先刷新列表数据（该任务已停止）
+  if (isDetailView) {
+    history.back();  // 触发 popstate 回到列表
+  }
 }
+
+// 动态显示可查询日期范围（flyai 实测约 45-50 天，因航线方向略有差异）
+(function(){
+  const today = new Date();
+  const limit = new Date(today.getTime() + 45 * 24 * 3600 * 1000);
+  const fmt = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  const el = document.getElementById('rangeNotice');
+  if (el) el.textContent = `当前可实时查询约45-50天内的航班（今天起至 ${fmt(limit)} 前后，不同航线略有差异），超出范围的日期系统会持续监控，到可查询时自动开始抓取。`;
+})();
 
 // Check auth on load
 (async () => {
@@ -699,15 +625,15 @@ const CITIES = [
   ["西安","XIY","咸阳"],["昆明","KMG","长水"],["三亚","SYX","凤凰"],
   ["海口","HAK","美兰"],["厦门","XMN","高崎"],["长沙","CSX","黄花"],
   ["青岛","TAO","胶东"],["大连","DLC","周水子"],["哈尔滨","HRB","太平"],
-  ["沈阳","SHE","桃仙"],["郑州","CGO","新郑"],["济南","TNA","遥墙"],
+  ["沈阳","SHE","桃仙"],["郑州","CGO","新郑"],["济南","TNA","遥杆"],
   ["福州","FOC","长乐"],["贵阳","KWE","龙洞堡"],["南宁","NNG","吴圩"],
-  ["兰州","LHW","中川"],["乌鲁木齐","URC","地窝堡"],["拉萨","LXA","贡嘎"],
+  ["兰州","LHW","中川"],["乌鲁木齐","URQ","地窝堡"],["拉萨","LXA","贡嘎"],
   ["天津","TSN","滨海"],["太原","TYN","武宿"],["石家庄","SJW","正定"],
   ["呼和浩特","HET","白塔"],["合肥","HFE","新桥"],["南昌","KHN","昌北"],
   ["宁波","NGB","栎社"],["温州","WNZ","龙湾"],["珠海","ZUH","金湾"],
   ["汕头","SWA","揭阳潮汕"],["桂林","KWL","两江"],["丽江","LJG","三义"],
-  ["西双版纳","JHG","嘎洒"],["大理","DLU","荒坝草"],["桂林","KWL","两江"],
-  ["泉州","JJN","晋江"],["烟台","YNT","蓬莱"],["威海","WEH","大水泊"],
+  ["西双版纳","JHG","嘎洒"],["大理","DLU","荒坝草"],
+  ["泉州","JJQ","晋江"],["烟台","YNT","蓬莱"],["威海","WEH","大水泊"],
   ["唐山","TVS","三女河"],["秦皇岛","BPE","北戴河"],["包头","BAV","二里半"],
   ["鄂尔多斯","DSN","伊金霍洛"],["赤峰","CIF","玉龙"],["通辽","TGO","通辽"],
   ["海拉尔","HLD","东山"],["满洲里","NZH","西郊"],["佳木斯","JMU","东郊"],
@@ -719,17 +645,17 @@ const CITIES = [
   ["黄山","TXN","屯溪"],["安庆","AQG","天柱山"],["九江","JIU","庐山"],
   ["赣州","KOW","黄金"],["宜春","YIW","明月山"],["井冈山","JGS","井冈山"],
   ["景德镇","JDZ","罗家"],["宜昌","YIH","三峡"],["襄阳","XFN","刘集"],
-  ["恩施","ENH","许家坪"],["十堰","WDS","武当山"],["神农架","HPG","红坪"],
+  ["恩施","ENSH","许家坪"],["十堰","WDS","武当山"],["神农架","HPG","红坪"],
   ["张家界","DYG","荷花"],["常德","CGD","桃花源"],["永州","LLF","零陵"],
   ["怀化","HJJ","芷江"],["岳阳","YYA","三荷"],["衡阳","HNY","南岳"],
   ["邵阳","WGN","武冈"],["湛江","ZHA","湛江"],["梅县","MXZ","梅县"],
   ["韶关","HSC","丹霞"],["北海","BHY","福成"],["柳州","LZH","白莲"],
-  ["桂林","KWL","两江"],["百色","AEB","巴马"],["梧州","WUZ","长洲岛"],
+  ["百色","AEB","巴马"],["梧州","WUZ","长洲岛"],
   ["河池","HCJ","金城江"],["西昌","XIC","青山"],["绵阳","MIG","南郊"],
   ["泸州","LZO","蓝田"],["宜宾","YBP","五粮液"],["南充","NAO","高坪"],
   ["达州","DAX","河市"],["广元","GYS","盘龙"],["攀枝花","PZI","保安营"],
   ["康定","KGT","康定"],["稻城","DCY","亚丁"],["九寨","JZH","黄龙"],
-  ["黄龙","JZH","九寨"],["甘孜","GZG","格萨尔"],["阿坝","AAT","红原"],
+  ["甘孜","GZG","格萨尔"],["阿坝","AAT","红原"],
   ["遵义","ZYI","新舟"],["铜仁","TEN","凤凰"],["毕节","BFJ","飞雄"],
   ["安顺","AVA","黄果树"],["兴义","ACX","万峰林"],["六盘水","LPF","月照"],
   ["喀什","KHG","喀什"],["伊宁","YIN","伊宁"],["阿克苏","AKU","温宿"],
@@ -744,18 +670,8 @@ const CITIES = [
   ["临汾","LFQ","尧都"],["大同","DAT","云冈"],["运城","YCU","张孝"],
   ["长治","CIH","王村"],["吕梁","LLV","大武"],["五台山","WUT","五台山"],
   ["香港","HKG","赤鱲角"],["澳门","MFM","澳门"],["台北","TPE","桃园"],
-  ["高雄","KHH","小港"],["台中","RMQ","清泉岗"],
+  ["高雄","KHH","小港"],["台中","RMQ","清泉"],
 ];
-
-const dl = document.createElement('datalist');
-dl.id = 'cityList';
-CITIES.forEach(([name, code, airport]) => {
-  const opt = document.createElement('option');
-  opt.value = name;
-  opt.label = `${code} ${airport}`;
-  dl.appendChild(opt);
-});
-document.body.appendChild(dl);
 
 function filterCities(inputEl, boxId) {
   const q = inputEl.value.trim();
@@ -774,11 +690,11 @@ function pickCity(inputId, boxId, cityName) {
   document.getElementById(boxId).classList.add('hidden');
 }
 
-// 点击外部关闭建议
 document.addEventListener('click', e => {
   if (!e.target.closest('.input-group')) {
     document.querySelectorAll('.suggest-box').forEach(b => b.classList.add('hidden'));
   }
 });
 </script>
+</body>
 </html>

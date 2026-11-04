@@ -40,6 +40,19 @@ class FliggyCrawler:
         # True=接口正常响应（status=0，即使无航班也算链路通）；False=链路报错；None=未调用
         self.last_ok = None
 
+    @staticmethod
+    def _classify(text: str) -> str:
+        """区分额度/限流（limited）与临时失败（transient）。"""
+        if not text:
+            return "transient"
+        limited_keys = (
+            "429", "Trial limit", "额度", "次数已", "次数用完", "限流",
+            "超出限额", "已用完", "quota", "rate limit",
+        )
+        if any(k.lower() in text.lower() for k in limited_keys):
+            return "limited"
+        return "transient"
+
     def search(self, dep_code: str, arr_code: str, dep_date: str,
                ret_date: str | None = None) -> list[dict]:
         self.last_error_kind = None
@@ -59,7 +72,7 @@ class FliggyCrawler:
         if ret_date:
             cmd += ["--back-date", ret_date]
 
-        # 网络抖动（超时/非0退出码/解析异常）重试一次；
+        # 网络抖动（超时/非0退出码/JSON解析异常）重试一次；
         # 业务确定性失败（如“搜索机票低价行业失败”=该日低价聚合无覆盖）不重复消耗额度，直接返回。
         data = None
         for attempt in range(2):
@@ -70,7 +83,8 @@ class FliggyCrawler:
                     self.last_error_kind = self._classify(proc.stderr)
                     self.last_ok = False
                     if attempt == 0:
-                        time.sleep(2); continue
+                        time.sleep(2)
+                        continue
                     return []
                 data = json.loads(proc.stdout)
                 if data.get("status") == 0:
@@ -86,30 +100,23 @@ class FliggyCrawler:
                 self.last_error_kind = "transient"
                 self.last_ok = False
                 if attempt == 0:
-                    time.sleep(2); continue
+                    time.sleep(2)
+                    continue
                 return []
             except Exception as e:
                 print(f"[fliggy] error: {e}")
                 self.last_error_kind = "transient"
                 self.last_ok = False
                 if attempt == 0:
-                    time.sleep(2); continue
+                    time.sleep(2)
+                    continue
                 return []
 
         if not data or data.get("status") != 0:
             self.last_ok = False
             return []
 
-    @staticmethod
-    def _classify(text: str) -> str:
-        """区分额度/限流（limited）与临时失败（transient）。"""
-        if not text:
-            return "transient"
-        limited_keys = ("429", "Trial limit", "额度", "次数已", "次数用完", "限流", "超出限额", "已用完", "quota", "rate limit")
-        if any(k.lower() in text.lower() for k in limited_keys):
-            return "limited"
-        return "transient"
-
+        # 成功响应：解析航班列表
         item_list = data.get("data", {}).get("itemList", [])
         flights = []
         for item in item_list:

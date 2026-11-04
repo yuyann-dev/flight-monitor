@@ -585,6 +585,10 @@ async function loadDetail(mid) {
         flightsEl.innerHTML = '<div style="text-align:center; color:#e67e22; padding:20px;">暂未获取到航班数据<br><span style="color:#999; font-size:12px;">日期可能超出可查询范围，系统会持续监控</span></div>';
       }
     } else {
+      // 有实时航班时，当前最低以本次返回的最低价为准
+      if (flights[0] && flights[0].price != null) {
+        document.getElementById('detailCurrentPrice').textContent = `¥${flights[0].price}`;
+      }
       flightsEl.innerHTML = flights.map(f => {
         const platformClass = f.platform === '飞常准' ? 'tag-variflight' : 'tag-fliggy';
         const buyUrl = f.link

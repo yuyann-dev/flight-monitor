@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>机票监控</title>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="/flight/static/chart.umd.min.js"></script>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f0f2f5; color: #333; }
@@ -476,34 +476,39 @@ async function loadDetail(mid) {
   document.getElementById('buyAdvice').textContent = adviceData.advice;
   document.getElementById('buyAdviceReason').innerHTML = adviceReason;
 
-  // 折线图
-  const ctx = document.getElementById('priceChart').getContext('2d');
-  if (priceChart) priceChart.destroy();
-  priceChart = new Chart(ctx, {
-    type: 'line',
-    data: {
-      labels: labels,
-      datasets: [{
-        label: '最低价',
-        data: prices,
-        borderColor: '#e74c3c',
-        backgroundColor: 'rgba(231,76,60,0.1)',
-        fill: true,
-        tension: 0.3,
-        pointRadius: 4,
-        pointBackgroundColor: '#e74c3c',
-      }]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: { legend: { display: false } },
-      scales: {
-        y: { beginAtZero: false, grid: { color: '#f0f0f0' } },
-        x: { grid: { display: false } }
+  // 折线图：Chart.js 加载失败也不阻断机建燃油与航班列表渲染
+  try {
+    if (typeof Chart === 'undefined') throw new Error('Chart.js 未加载');
+    const ctx = document.getElementById('priceChart').getContext('2d');
+    if (priceChart) priceChart.destroy();
+    priceChart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: labels,
+        datasets: [{
+          label: '最低价',
+          data: prices,
+          borderColor: '#e74c3c',
+          backgroundColor: 'rgba(231,76,60,0.1)',
+          fill: true,
+          tension: 0.3,
+          pointRadius: 4,
+          pointBackgroundColor: '#e74c3c',
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          y: { beginAtZero: false, grid: { color: '#f0f0f0' } },
+          x: { grid: { display: false } }
+        }
       }
-    }
-  });
+    });
+  } catch (chartErr) {
+    console.warn('走势图渲染跳过:', chartErr);
+  }
 
   // 航班列表：后端已完成所有过滤和排序，前端直接渲染
   const flightsEl = document.getElementById('detailFlights');

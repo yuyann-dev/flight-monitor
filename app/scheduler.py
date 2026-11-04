@@ -193,7 +193,11 @@ async def run_single_monitor(mid: int):
 
         all_flights = []
         fliggy_hit_limit = False
-        fliggy_ok = False  # 飞猪本轮是否拿到过数据
+        variflight_allowed_this_round = True  # 本轮是否允许飞常准调用
+        if variflight:
+            variflight_allowed_this_round = variflight._throttle_allows()
+            if not variflight_allowed_this_round:
+                print("[scheduler] 飞常准处于节流间隔，本轮跳过")
         for date_str in date_list:
             day_flights = []
             # 第一步：试飞猪
@@ -207,8 +211,8 @@ async def run_single_monitor(mid: int):
                 if "429" in str(e) or "Trial limit" in str(e):
                     fliggy_hit_limit = True
 
-            # 第二步：飞猪没拿到数据才用飞常准
-            if not day_flights and variflight:
+            # 第二步：飞猪没拿到数据才用飞常准（同一轮内不重复节流）
+            if not day_flights and variflight and variflight_allowed_this_round:
                 try:
                     found = variflight.search(dep_code, arr_code, date_str)
                     day_flights.extend(found)
@@ -367,12 +371,21 @@ async def run_monitor_job():
 
 
 def start_scheduler():
+    from apscheduler.triggers.cron import CronTrigger
+    # 白天 7:00-23:59 每30分钟
     scheduler.add_job(
         run_monitor_job,
-        trigger=IntervalTrigger(minutes=settings.crawl_interval_minutes),
+        trigger=CronTrigger(minute="*/30", hour="7-23"),
         next_run_time=datetime.now(),
-        id="monitor_job",
+        id="monitor_day",
+        replace_existing=True,
+    )
+    # 夜间 0:00-6:59 每2小时
+    scheduler.add_job(
+        run_monitor_job,
+        trigger=CronTrigger(minute="0", hour="0-6"),
+        id="monitor_night",
         replace_existing=True,
     )
     scheduler.start()
-    print(f"[scheduler] started, interval={settings.crawl_interval_minutes}min")
+    print("[scheduler] started: 白天7-24点每30分钟, 夜间0-7点每2小时")

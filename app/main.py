@@ -4,7 +4,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from datetime import datetime
-from app.config import BASE_DIR
+from app.config import BASE_DIR, settings
 from app.models import init_db, SessionLocal, Monitor, User, PriceSample
 from app.auth import create_login_code, send_code_email, login_with_code, verify_token
 from app.scheduler import start_scheduler
@@ -315,16 +315,21 @@ async def monitor_latest_detail(mid: int, user: User = Depends(get_current_user)
     from app.analyzer import compute_fees
     db = SessionLocal()
     try:
+        monitor = db.query(Monitor).filter(Monitor.id == mid).first()
         sample = (
             db.query(PriceSample)
             .filter(PriceSample.monitor_id == mid)
             .order_by(PriceSample.checked_at.desc())
             .first()
         )
-        # 无可靠距离时按长途保守计算费用
         fees = compute_fees()
+        # 诚实显示：如果最近一次检查没拿到航班（渠道挂了），不返回旧数据
+        if monitor and monitor.last_checked_at and sample:
+            gap = (monitor.last_checked_at - sample.checked_at).total_seconds()
+            if gap > 300:  # 最近5分钟内检查过但没存新数据 = 渠道挂了
+                return {"flights": [], "fees": fees, "stale": True}
         if not sample:
-            return {"flights": [], "fees": fees}
+            return {"flights": [], "fees": fees, "stale": not bool(monitor and monitor.last_checked_at)}
         return {"flights": sample.flight_detail or [], "fees": fees}
     finally:
         db.close()

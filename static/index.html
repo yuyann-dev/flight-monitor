@@ -211,26 +211,46 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
 
     <!-- Monitor Detail -->
     <div class="card hidden" id="monitorDetailCard">
-      <button class="btn btn-outline btn-sm" onclick="backToList()" style="margin-bottom:16px;">← 返回列表</button>
-      <h2 id="detailTitle"></h2>
-      <div style="margin: 16px 0; padding: 16px; background: #f8f9fa; border-radius: 8px;">
-        <div style="display: flex; justify-content: space-around; text-align: center;">
-          <div>
-            <div style="font-size: 12px; color: #999;">当前价</div>
-            <div style="font-size: 24px; font-weight: bold; color: #e74c3c;" id="detailCurrentPrice">-</div>
-          </div>
-          <div>
-            <div style="font-size: 12px; color: #999;">历史最低</div>
-            <div style="font-size: 24px; font-weight: bold; color: #27ae60;" id="detailMinPrice">-</div>
-          </div>
-          <div>
-            <div style="font-size: 12px; color: #999;">心理价位</div>
-            <div style="font-size: 24px; font-weight: bold; color: #4A90D9;" id="detailMaxPrice">-</div>
-          </div>
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+        <button class="btn btn-outline btn-sm" onclick="backToList()">← 返回列表</button>
+        <button class="btn btn-danger btn-sm" id="detailStopBtn" onclick="stopMonitor(currentMonitorId)">停止监控</button>
+      </div>
+      
+      <h2 id="detailTitle" style="margin-bottom: 4px;"></h2>
+      <div id="detailSubtitle" style="font-size: 14px; color: #999; margin-bottom: 20px;"></div>
+
+      <!-- 统计卡片 -->
+      <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 24px;">
+        <div style="background: #fff5f5; padding: 16px; border-radius: 10px; text-align: center;">
+          <div style="font-size: 12px; color: #999;">当前最低</div>
+          <div style="font-size: 22px; font-weight: bold; color: #e74c3c;" id="detailCurrentPrice">-</div>
+        </div>
+        <div style="background: #f0fff4; padding: 16px; border-radius: 10px; text-align: center;">
+          <div style="font-size: 12px; color: #999;">历史最低</div>
+          <div style="font-size: 22px; font-weight: bold; color: #27ae60;" id="detailMinPrice">-</div>
+        </div>
+        <div style="background: #f0f7ff; padding: 16px; border-radius: 10px; text-align: center;">
+          <div style="font-size: 12px; color: #999;">心理价位</div>
+          <div style="font-size: 22px; font-weight: bold; color: #4A90D9;" id="detailMaxPrice">-</div>
+        </div>
+        <div style="background: #fafafa; padding: 16px; border-radius: 10px; text-align: center;">
+          <div style="font-size: 12px; color: #999;">机建燃油</div>
+          <div style="font-size: 22px; font-weight: bold; color: #666;" id="detailFees">¥190</div>
         </div>
       </div>
-      <div style="height: 300px;">
-        <canvas id="priceChart"></canvas>
+
+      <!-- 价格走势 -->
+      <div style="margin-bottom: 24px;">
+        <h3 style="font-size: 16px; margin-bottom: 12px;">价格走势</h3>
+        <div style="height: 250px; background: #fafafa; border-radius: 8px; padding: 12px;">
+          <canvas id="priceChart"></canvas>
+        </div>
+      </div>
+
+      <!-- 航班列表 -->
+      <div>
+        <h3 style="font-size: 16px; margin-bottom: 12px;">最新航班（飞猪）</h3>
+        <div id="detailFlights"></div>
       </div>
     </div>
 
@@ -335,8 +355,9 @@ async function loadDetail(mid) {
   const list = await api('/api/monitors');
   const m = list.find(x => x.id === mid);
   if (!m) return;
-  document.getElementById('detailTitle').textContent = `${m.departure_city} → ${m.arrival_city} · ${m.departure_date}`;
-  document.getElementById('detailCurrentPrice').textContent = m.best_price ? `¥${m.best_price}` : '-';
+  document.getElementById('detailTitle').textContent = `${m.departure_city} → ${m.arrival_city}`;
+  document.getElementById('detailSubtitle').textContent = `${m.departure_date}${m.return_date ? ' ~ ' + m.return_date : ' 单程'} · ${m.cabin_class === 'economy' ? '经济舱' : m.cabin_class}`;
+  document.getElementById('detailCurrentPrice').textContent = m.best_price ? `¥${m.best_price}` : '采集中...';
   document.getElementById('detailMinPrice').textContent = m.best_price ? `¥${m.best_price}` : '-';
   document.getElementById('detailMaxPrice').textContent = m.max_price ? `¥${m.max_price}` : '不限';
 
@@ -344,6 +365,7 @@ async function loadDetail(mid) {
   const labels = history.map(h => formatTime(h.time));
   const prices = history.map(h => h.price);
 
+  // 折线图
   const ctx = document.getElementById('priceChart').getContext('2d');
   if (priceChart) priceChart.destroy();
   priceChart = new Chart(ctx, {
@@ -351,23 +373,54 @@ async function loadDetail(mid) {
     data: {
       labels: labels,
       datasets: [{
-        label: '价格',
+        label: '最低价',
         data: prices,
         borderColor: '#e74c3c',
         backgroundColor: 'rgba(231,76,60,0.1)',
         fill: true,
         tension: 0.3,
         pointRadius: 4,
+        pointBackgroundColor: '#e74c3c',
       }]
     },
     options: {
       responsive: true,
       maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
       scales: {
-        y: { beginAtZero: false }
+        y: { beginAtZero: false, grid: { color: '#f0f0f0' } },
+        x: { grid: { display: false } }
       }
     }
   });
+
+  // 航班列表 - 从最新一条 sample 的 flight_detail 里取
+  // 先查一下最新的 detail
+  const detailRes = await api(`/api/monitors/${mid}/latest-detail`);
+  const flights = detailRes.flights || [];
+  const flightsEl = document.getElementById('detailFlights');
+  if (!flights.length) {
+    flightsEl.innerHTML = '<div style="text-align:center; color:#aaa; padding: 20px;">暂无航班数据</div>';
+  } else {
+    flightsEl.innerHTML = flights.map(f => `
+      <div style="border: 1px solid #eee; border-radius: 10px; padding: 14px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center;">
+        <div style="flex: 1;">
+          <div style="font-weight: 600; margin-bottom: 4px;">
+            ${f.airline} ${f.flight_no}
+            ${f.is_direct ? '<span style="font-size:11px; background:#e8f5e9; color:#2e7d32; padding:2px 6px; border-radius:4px; margin-left:6px;">直飞</span>' : '<span style="font-size:11px; background:#fff3e0; color:#e65100; padding:2px 6px; border-radius:4px; margin-left:6px;">中转</span>'}
+          </div>
+          <div style="font-size: 13px; color: #666;">
+            ${f.dep_time ? f.dep_time.substring(11, 16) : '--'} ${f.dep_airport || ''} → ${f.arr_time ? f.arr_time.substring(11, 16) : '--'} ${f.arr_airport || ''}
+          </div>
+        </div>
+        <div style="text-align: right; margin-right: 12px;">
+          <div style="font-size: 20px; font-weight: bold; color: #e74c3c;">¥${f.price}</div>
+          <div style="font-size: 11px; color: #999;">+机建燃油¥190</div>
+        </div>
+        ${f.link ? `<a href="${f.link}" target="_blank" class="btn btn-primary btn-sm">去购买</a>` : ''}
+      </div>
+    `).join('');
+  }
 }
 
 async function queryPrice() {

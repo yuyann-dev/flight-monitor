@@ -215,6 +215,20 @@ async def monitor_history(mid: int, user: User = Depends(get_current_user)):
         db.close()
 
 
+@app.get("/api/monitors/{mid}/latest-detail")
+async def monitor_latest_detail(mid: int, user: User = Depends(get_current_user)):
+    db = SessionLocal()
+    try:
+        sample = db.query(PriceSample).filter(
+            PriceSample.monitor_id == mid
+        ).order_by(PriceSample.checked_at.desc()).first()
+        if not sample:
+            return {"flights": []}
+        return {"flights": sample.flight_detail or []}
+    finally:
+        db.close()
+
+
 # ── Crawler callback API (for GitHub Actions) ──
 class CrawlerResult(BaseModel):
     dep: str

@@ -47,8 +47,13 @@ def _short_time(time_str: str) -> str:
         return "--"
 
 
-def send_price_alert(email: str, monitor_info: dict, flights: list, analysis: dict, advice: str = "建议考虑购票"):
-    """发送价格提醒邮件，根据advice类型用不同文案。"""
+def send_price_alert(email: str, monitor_info: dict, flights: list, analysis: dict,
+                     advice: str = "建议考虑购票", is_new_low: bool | None = None):
+    """发送价格提醒邮件，根据advice类型用不同文案。
+
+    邮件发送失败只记录日志、不向外抛异常，避免 SMTP 抖动导致本轮采集数据被回滚。
+    is_new_low 由调用方基于“更新前历史最低”判定；缺省时再做保守回退判断。
+    """
     rows = ""
     for f in flights[:5]:
         direct_text = "直飞" if f.get("is_direct") else "中转"
@@ -66,10 +71,11 @@ def send_price_alert(email: str, monitor_info: dict, flights: list, analysis: di
         """
 
     history_low = monitor_info.get("best_price_ever")
-    is_new_low = (
-        history_low is not None
-        and analysis["best_price"] <= history_low
-    )
+    if is_new_low is None:
+        # 回退：仅当当前价严格小于历史最低才视为新低
+        is_new_low = bool(
+            history_low is not None and analysis["best_price"] < history_low
+        )
     new_low_banner = (
         '<p style="margin:5px 0; color:#27ae60; font-weight:bold;">已创监控以来历史新低</p>'
         if is_new_low else ""
@@ -124,13 +130,17 @@ def send_price_alert(email: str, monitor_info: dict, flights: list, analysis: di
       </div>
 
       <p style="color:#999; font-size:12px; margin-top:20px;">
-        本邮件由机票监控系统自动发送 · 数据来源：飞猪实时查询<br>
+        本邮件由机票监控系统自动发送 · 数据来源：飞猪 / 飞常准实时比价<br>
         价格为统计判断，实际可能受节假日、供需等因素影响，仅供参考
       </p>
     </div>
     """
-    send_email(
-        email,
-        f"{monitor_info['departure_city']}→{monitor_info['arrival_city']} {subject_prefix} ¥{analysis['best_price']}",
-        body,
-    )
+    try:
+        send_email(
+            email,
+            f"{monitor_info['departure_city']}→{monitor_info['arrival_city']} {subject_prefix} ¥{analysis['best_price']}",
+            body,
+        )
+    except Exception as exc:
+        # 发信失败不影响采集与落库，仅打印便于排查
+        print(f"[email] send_price_alert to {email} failed: {exc}")

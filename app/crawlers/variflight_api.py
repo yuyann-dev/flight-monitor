@@ -173,6 +173,8 @@ class VariflightCrawler:
         )
         self._warned = False
         self._throttled_warned = False
+        # True=链路成功响应；False=调用报错；None=未尝试（未配置/节流跳过）
+        self.last_ok = None
 
     def _throttle_allows(self) -> bool:
         """基于文件时间戳判断是否到达允许调用的间隔。"""
@@ -200,6 +202,7 @@ class VariflightCrawler:
 
     def search(self, dep_code: str, arr_code: str, dep_date: str,
                ret_date: str | None = None) -> list[dict]:
+        self.last_ok = None
         if not self._api_key:
             if not self._warned:
                 print("[variflight] 未配置 VARIFLIGHT_MCP_KEY，跳过该数据源")
@@ -216,12 +219,15 @@ class VariflightCrawler:
         try:
             result = self._route_flights(client, dep_code, arr_code, dep_date)
             self._record_call()
+            self.last_ok = True
             return result
         except VariflightError as exc:
             print(f"[variflight] {dep_date} 调用失败: {exc}")
+            self.last_ok = False
             return []
         except Exception as exc:  # 兜底：任何异常都不能拖垮主流程
             print(f"[variflight] {dep_date} 未知错误: {exc}")
+            self.last_ok = False
             return []
 
     def _route_flights(self, client: VariflightMCPClient,

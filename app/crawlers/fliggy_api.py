@@ -35,12 +35,15 @@ class FliggyCrawler:
     name = "fliggy"
 
     def __init__(self):
-        # None=正常/未知；"limited"=额度或限流；"transient"=临时失败/无数据
+        # None=未尝试；"limited"=额度或限流；"transient"=临时失败/无数据
         self.last_error_kind = None
+        # True=接口正常响应（status=0，即使无航班也算链路通）；False=链路报错；None=未调用
+        self.last_ok = None
 
     def search(self, dep_code: str, arr_code: str, dep_date: str,
                ret_date: str | None = None) -> list[dict]:
         self.last_error_kind = None
+        self.last_ok = False
         if not shutil.which("flyai"):
             print("[fliggy] flyai CLI not installed")
             self.last_error_kind = "transient"
@@ -56,36 +59,45 @@ class FliggyCrawler:
         if ret_date:
             cmd += ["--back-date", ret_date]
 
-        # 飞猪API偶尔返回"搜索机票低价行业失败"，自动重试一次
+        # 网络抖动（超时/非0退出码/解析异常）重试一次；
+        # 业务确定性失败（如“搜索机票低价行业失败”=该日低价聚合无覆盖）不重复消耗额度，直接返回。
         data = None
         for attempt in range(2):
             try:
                 proc = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
                 if proc.returncode != 0:
-                    print(f"[fliggy] flyai error: {proc.stderr[:200]}")
+                    print(f"[fliggy] flyai exit {proc.returncode}: {proc.stderr[:200]}")
                     self.last_error_kind = self._classify(proc.stderr)
+                    self.last_ok = False
+                    if attempt == 0:
+                        time.sleep(2); continue
                     return []
                 data = json.loads(proc.stdout)
                 if data.get("status") == 0:
+                    self.last_ok = True
                     break
                 msg = data.get("message", "")
-                print(f"[fliggy] attempt {attempt+1} failed: {msg}")
-                if attempt == 0 and "失败" in msg:
-                    time.sleep(2)
-                    continue
+                print(f"[fliggy] {dep_date} business fail: {msg}")
                 self.last_error_kind = self._classify(msg)
+                self.last_ok = False
                 return []
             except subprocess.TimeoutExpired:
                 print("[fliggy] flyai timeout")
                 self.last_error_kind = "transient"
+                self.last_ok = False
+                if attempt == 0:
+                    time.sleep(2); continue
                 return []
             except Exception as e:
                 print(f"[fliggy] error: {e}")
                 self.last_error_kind = "transient"
+                self.last_ok = False
+                if attempt == 0:
+                    time.sleep(2); continue
                 return []
 
         if not data or data.get("status") != 0:
-            self.last_error_kind = "transient"
+            self.last_ok = False
             return []
 
     @staticmethod

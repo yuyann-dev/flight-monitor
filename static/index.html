@@ -384,7 +384,11 @@ async function loadMonitors() {
         ${m.latest_price ? `<div style="font-size:12px; color:#999;">当前最低</div><div style="font-size:20px; font-weight:bold; color:#e74c3c;">¥${m.latest_price}</div><small style="color:#999;">历史最低 ¥${m.best_price}</small>`
           : (isNight()
             ? '<div style="color:#5a6b7b; font-size:13px;">夜间暂停自动更新<br><small style="color:#999;">点进详情可手动刷新</small></div>'
-            : '<div style="color:#aaa">采集中...</div>')}
+            : m.stale
+              ? '<div style="color:#e67e22; font-size:13px;">数据源暂不可用<br><small style="color:#999;">最近采集失败，未显示旧价</small></div>'
+              : m.no_match
+                ? '<div style="color:#5a6b7b; font-size:13px;">暂无符合条件航班<br><small style="color:#999;">数据源正常，可放宽筛选</small></div>'
+                : '<div style="color:#aaa">采集中...</div>')}
       </div>
       <button class="btn btn-danger btn-sm" onclick="event.stopPropagation(); stopMonitor(${m.id})">停止</button>
     </div>
@@ -464,8 +468,8 @@ async function refreshDetail() {
     }
     await loadDetail(currentMonitorId);
     let msg = '刷新完成';
-    if (res.variflight_left !== undefined) msg += `，飞常准今日剩${res.variflight_left}次`;
-    if (res.refresh_left !== undefined) msg += `，今日刷新剩${res.refresh_left}次`;
+    if (res.used_variflight) msg += `（本次启用飞常准补数，今日剩${res.variflight_left}次）`;
+    if (res.refresh_left !== undefined) msg += `，今日手动刷新剩${res.refresh_left}次`;
     if (res.note) msg += `（${res.note}）`;
     toast(msg);
   } catch(e) {
@@ -569,13 +573,14 @@ async function loadDetail(mid) {
     const flights = detailRes.flights || [];
 
     if (!flights.length || detailRes.stale) {
-      if (detailRes.stale) {
-        document.getElementById('detailCurrentPrice').textContent = '--';
-      }
+      // 没有最新航班时，当前最低一律显示 --，不沿用历史价格冒充实时价
+      document.getElementById('detailCurrentPrice').textContent = '--';
       if (isNight()) {
         flightsEl.innerHTML = '<div style="text-align:center; color:#5a6b7b; padding:20px;">夜间暂停自动采集（0:00–7:00）<br><span style="color:#999; font-size:12px;">点上方「立即刷新」可手动查询最新价，7:00 后自动恢复监控</span></div>';
       } else if (detailRes.stale) {
-        flightsEl.innerHTML = '<div style="text-align:center; color:#e67e22; padding:20px;">数据源暂时不可用<br><span style="color:#999; font-size:12px;">正在等待数据恢复，不再显示旧数据避免误导</span></div>';
+        flightsEl.innerHTML = '<div style="text-align:center; color:#e67e22; padding:20px;">数据源暂时不可用<br><span style="color:#999; font-size:12px;">最近一次采集失败，不再显示旧数据避免误导；可点「立即刷新」重试</span></div>';
+      } else if (detailRes.no_match) {
+        flightsEl.innerHTML = '<div style="text-align:center; color:#5a6b7b; padding:20px;">暂无符合当前筛选条件的航班<br><span style="color:#999; font-size:12px;">数据源正常，可放宽直飞/时段/行李条件后再看</span></div>';
       } else {
         flightsEl.innerHTML = '<div style="text-align:center; color:#e67e22; padding:20px;">暂未获取到航班数据<br><span style="color:#999; font-size:12px;">日期可能超出可查询范围，系统会持续监控</span></div>';
       }

@@ -196,6 +196,7 @@ async def run_single_monitor(mid: int, manual_refresh: bool = False, allow_varif
 
         all_flights = []
         fliggy_hit_limit = False
+        source_ok = False  # 是否至少有一个数据源成功响应（即使筛选后无航班也算链路正常）
         for date_str in date_list:
             day_flights = []
             # 飞猪
@@ -207,6 +208,8 @@ async def run_single_monitor(mid: int, manual_refresh: bool = False, allow_varif
             # 以爬虫自报的错误类型为准：明确额度/限流才点亮限流标记，临时失败不误报
             if getattr(fliggy, "last_error_kind", None) == "limited":
                 fliggy_hit_limit = True
+            if getattr(fliggy, "last_ok", False):
+                source_ok = True
 
             # 手动刷新且飞猪没数据时才用飞常准
             if not day_flights and variflight:
@@ -218,6 +221,8 @@ async def run_single_monitor(mid: int, manual_refresh: bool = False, allow_varif
                         print(f"[scheduler] {date_str} 飞常准补上 {len(found)} 班")
                 except Exception as e:
                     print(f"[scheduler] {date_str} 飞常准 error: {e}")
+                if getattr(variflight, "last_ok", False):
+                    source_ok = True
 
             for f in day_flights:
                 f["date"] = date_str
@@ -277,8 +282,16 @@ async def run_single_monitor(mid: int, manual_refresh: bool = False, allow_varif
             print(f"[scheduler] excluded {before - len(flights)} flights")
 
         if not flights:
-            print(f"[scheduler] no flights for monitor {m.id}")
-            m.last_checked_at = datetime.utcnow()
+            now0 = datetime.utcnow()
+            m.last_checked_at = now0
+            if source_ok:
+                # 数据源链路正常响应，只是没有航班符合筛选条件/暂无票：
+                # 视为最近一次采集成功，避免误报“数据源不可用”
+                m.last_success_at = now0
+                print(f"[scheduler] monitor {m.id}: 数据源正常但无符合条件航班")
+            else:
+                # 所有数据源都报错：只更新检查时间，保留旧成功时间 → 前端如实显示不可用
+                print(f"[scheduler] monitor {m.id}: 数据源异常且无航班")
             db.commit()
             return variflight_used
 
@@ -319,6 +332,9 @@ async def run_single_monitor(mid: int, manual_refresh: bool = False, allow_varif
 
         m.last_checked_at = now
         m.last_success_at = now
+        # 用“更新前”历史最低判断是否新低，避免更新后恒等导致横幅误显
+        prev_best_price = m.best_price_ever
+        is_new_low = bool(prev_best_price is None or best_price < prev_best_price)
         if not m.best_price_ever or best_price < m.best_price_ever:
             m.best_price_ever = best_price
 
@@ -339,11 +355,12 @@ async def run_single_monitor(mid: int, manual_refresh: bool = False, allow_varif
                     "departure_city": m.departure_city,
                     "arrival_city": m.arrival_city,
                     "departure_date": m.departure_date_start,
-                    "best_price_ever": m.best_price_ever,
+                    "best_price_ever": prev_best_price,
                 },
                 flights=flights[:5],
                 analysis=analysis,
                 advice=analysis.get("advice", "建议考虑购票"),
+                is_new_low=is_new_low,
             )
             m.last_notified_at = now
             m.last_notified_price = best_price

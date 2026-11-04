@@ -149,6 +149,11 @@ async def list_monitors(user: User = Depends(get_current_user)):
                 m.last_checked_at and m.last_success_at
                 and m.last_checked_at > m.last_success_at
             )
+            # no_match：链路正常但本次无符合筛选条件的航班，也不沿用旧当前价
+            no_match = bool(
+                not is_stale and m.last_checked_at
+                and (latest is None or m.last_checked_at > latest.checked_at)
+            )
             result.append(
                 {
                     "id": m.id,
@@ -157,7 +162,9 @@ async def list_monitors(user: User = Depends(get_current_user)):
                     "departure_date_start": m.departure_date_start,
                     "departure_date_end": m.departure_date_end,
                     "best_price": m.best_price_ever,
-                    "latest_price": None if is_stale else (latest.best_price if latest else None),
+                    "latest_price": None if (is_stale or no_match) else (latest.best_price if latest else None),
+                    "stale": is_stale,
+                    "no_match": no_match,
                     "last_checked": (
                         m.last_checked_at.isoformat() + "Z"
                         if m.last_checked_at
@@ -348,8 +355,15 @@ async def monitor_latest_detail(mid: int, user: User = Depends(get_current_user)
         )
         if stale:
             return {"flights": [], "fees": fees, "stale": True}
-        if not sample:
-            return {"flights": [], "fees": fees, "stale": not bool(monitor and monitor.last_checked_at)}
+        # 最近一次采集没有产生“符合条件”的新样本（无票或被筛选条件过滤）：
+        # 不回传旧航班冒充最新，返回 no_match 由前端提示“暂无符合条件航班”
+        latest_sample_at = sample.checked_at if sample else None
+        no_match = bool(
+            monitor.last_checked_at
+            and (latest_sample_at is None or monitor.last_checked_at > latest_sample_at)
+        )
+        if no_match:
+            return {"flights": [], "fees": fees, "stale": False, "no_match": True}
         return {"flights": sample.flight_detail or [], "fees": fees}
     finally:
         db.close()
@@ -386,14 +400,16 @@ async def monitor_refresh(mid: int, user: User = Depends(get_current_user)):
         if variflight_used:
             quota_file.write_text(f"{today}:{used_today + 1}")
             left = 3 - used_today - 1
-            return {"ok": True, "variflight_left": left}
-        # 飞猪直接成功、或飞常准额度已用尽未启用：飞猪刷新不受限
+            return {"ok": True, "used_variflight": True, "variflight_left": left}
+        # 飞猪直接成功：不强调飞常准剩余额度，避免误导用户以为依赖备用源
         if not allow_variflight:
-            return {"ok": True, "variflight_left": 0, "note": "飞常准今日3次已用完，本次仅用飞猪查询"}
-        return {"ok": True, "variflight_left": 3 - used_today}
+            return {"ok": True, "note": "飞常准今日3次已用完，本次仅用飞猪查询"}
+        return {"ok": True}
     else:
-        # 其他用户：手动刷新每天限10次；飞常准是否可用由后端任务归属规则控制
-        other_quota = Path(settings.database_url.replace("sqlite:///", "")).parent / ".other_refresh_quota"
+        # 其他用户：手动刷新（含飞猪）每天限10次；飞常准另计每天3次，
+        # 且仅当主人无活跃任务时才允许使用（归属由 run_single_monitor 内 _variflight_allowed_for 兜底）
+        data_dir = Path(settings.database_url.replace("sqlite:///", "")).parent
+        other_quota = data_dir / ".other_refresh_quota"
         used = 0
         if other_quota.exists():
             try:
@@ -402,9 +418,27 @@ async def monitor_refresh(mid: int, user: User = Depends(get_current_user)):
             except Exception: pass
         if used >= 10:
             return {"ok": False, "msg": "今日手动刷新次数已用完（10次），明天自动恢复"}
-        await run_single_monitor(mid, manual_refresh=True)
+
+        vfile = data_dir / ".variflight_other_quota"
+        v_used = 0
+        if vfile.exists():
+            try:
+                d, c = vfile.read_text().strip().split(":")
+                if d == today: v_used = int(c)
+            except Exception: pass
+        allow_variflight = v_used < 3
+
+        used_v = await run_single_monitor(mid, manual_refresh=True, allow_variflight=allow_variflight)
         other_quota.write_text(f"{today}:{used + 1}")
-        return {"ok": True, "refresh_left": 10 - used - 1}
+        if used_v:
+            vfile.write_text(f"{today}:{v_used + 1}")
+            return {"ok": True, "used_variflight": True,
+                    "refresh_left": 10 - used - 1, "variflight_left": 3 - v_used - 1}
+        note = "飞常准今日3次已用完，本次仅用飞猪查询" if not allow_variflight else None
+        result = {"ok": True, "refresh_left": 10 - used - 1}
+        if note:
+            result["note"] = note
+        return result
 
 
 # ── 静态资源与前端 ──

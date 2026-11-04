@@ -248,10 +248,10 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
       </div>
 
       <!-- 购买建议 -->
-      <div style="margin-bottom: 24px; padding: 16px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 12px; color: white;">
-        <div style="font-size: 14px; opacity: 0.9; margin-bottom: 8px;">📊 购买建议</div>
-        <div id="buyAdvice" style="font-size: 18px; font-weight: bold; margin-bottom: 8px;">分析中...</div>
-        <div id="buyAdviceReason" style="font-size: 13px; opacity: 0.9; line-height: 1.6;"></div>
+      <div style="margin-bottom: 24px; padding: 16px; background: #f8f9fa; border-left: 4px solid #3498db; border-radius: 8px;">
+        <div style="font-size: 13px; color: #666; margin-bottom: 8px;">购买建议</div>
+        <div id="buyAdvice" style="font-size: 16px; font-weight: 600; margin-bottom: 6px; color: #2c3e50;">分析中...</div>
+        <div id="buyAdviceReason" style="font-size: 13px; color: #666; line-height: 1.6;"></div>
       </div>
 
       <!-- 价格走势 -->
@@ -356,9 +356,9 @@ async function showDetail(mid) {
   currentMonitorId = mid;
   document.getElementById('monitorListCard').classList.add('hidden');
   document.getElementById('monitorDetailCard').classList.remove('hidden');
-  // 等DOM渲染完再滚到顶部
-  setTimeout(() => { window.scrollTo({top: 0, behavior: 'smooth'}); }, 50);
   await loadDetail(mid);
+  // 等内容渲染完再滚到顶部
+  setTimeout(() => { window.scrollTo(0, 0); }, 100);
 }
 
 function backToList() {
@@ -431,28 +431,22 @@ async function loadDetail(mid) {
   const today = new Date();
   const daysLeft = Math.ceil((depDate - today) / (1000 * 60 * 60 * 24));
 
-  let advice, adviceReason, adviceColor;
+  let advice, adviceReason;
   if (daysLeft < 7) {
-    advice = '⏰ 建议尽快购买';
+    advice = '建议尽快购买';
     adviceReason = `距出发仅${daysLeft}天，临期价格通常只会上涨，越晚越贵。`;
   } else if (pct <= 20 && daysLeft >= 14) {
-    advice = '✅ 强烈建议入手';
-    adviceReason = `当前价格处于历史${Math.round(pct)}%分位（低于80%的时段），且距离出发还有${daysLeft}天，是低价窗口。`;
+    advice = '强烈建议入手';
+    adviceReason = `当前价格处于历史${Math.round(pct)}%分位（低于80%的时段），且距离出发还有${daysLeft}天，属于低价窗口。`;
   } else if (pct <= 40) {
-    advice = '👍 可以考虑入手';
-    adviceReason = `当前价格处于历史${Math.round(pct)}%分位，偏低。`;
+    advice = '可以考虑入手';
+    adviceReason = `当前价格处于历史${Math.round(pct)}%分位，价格偏低。`;
   } else if (daysLeft > 45) {
-    advice = '⏳ 再等等';
-    adviceReason = `距出发还有${daysLeft}天，价格尚未稳定，大概率还会降。`;
+    advice = '建议继续等待';
+    adviceReason = `距出发还有${daysLeft}天，价格尚未稳定，大概率还会下降。`;
   } else {
-    advice = '👀 继续观望';
-    adviceReason = `当前价格处于历史${Math.round(pct)}%分位，不算便宜也不算贵，可以再等等看会不会降。`;
-  }
-
-  // 如果到了心理价位
-  if (m.max_price && currentPrice <= m.max_price) {
-    advice = '🎉 已达心理价位，建议入手';
-    adviceReason = `当前价格¥${currentPrice}已低于你设定的心理价位¥${m.max_price}。`;
+    advice = '建议继续观望';
+    adviceReason = `当前价格处于历史${Math.round(pct)}%分位，价格适中，可再等待是否有更低价格。`;
   }
 
   document.getElementById('buyAdvice').textContent = advice;
@@ -498,9 +492,21 @@ async function loadDetail(mid) {
     if (!flights.length) {
       flightsEl.innerHTML = '<div style="text-align:center; color:#e67e22; padding: 20px;">暂未获取到航班数据<br><small style="color:#999;">可能原因：日期太远（flyai免费版仅支持近期航班）、或航线暂无机票</small></div>';
     } else {
-      // 如果勾选了需要免费托运行李，剔除廉航
+      // 如果勾选了需要免费托运行李，剔除无免费托运的航班
       let filteredFlights = flights;
-      // 这里暂时不过滤，因为 m.baggage_required 我们没传到前端，先显示全部，后面再加
+      if (m.baggage_required) {
+        filteredFlights = flights.filter(f => {
+          const airline = f.airline || '';
+          // 检查是不是廉航
+          for (const a of ULTRA_LOW_COST_AIRLINES) {
+            if (airline.includes(a)) return false;
+          }
+          for (const a of DIFFERENTIATED_AIRLINES) {
+            if (airline.includes(a)) return false;
+          }
+          return true;
+        });
+      }
       flightsEl.innerHTML = filteredFlights.map(f => `
         <div style="border: 1px solid #eee; border-radius: 10px; padding: 14px; margin-bottom: 10px;">
           <div style="display: flex; justify-content: space-between; align-items: flex-start;">

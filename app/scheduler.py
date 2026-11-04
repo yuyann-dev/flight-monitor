@@ -43,7 +43,7 @@ async def run_monitor_job():
                 dep_code = CITY_NAME_TO_CODE.get(m.departure_city, m.departure_city[:3].upper())
                 arr_code = CITY_NAME_TO_CODE.get(m.arrival_city, m.arrival_city[:3].upper())
 
-                # 多平台比价：飞猪（主） + 携程（备）
+                # 多平台比价：飞猪（主，flyai CLI 官方数据）
                 all_flights = []
 
                 # 飞猪（主源，flyai CLI）
@@ -53,12 +53,12 @@ async def run_monitor_job():
                 except Exception as e:
                     print(f"[scheduler] fliggy error: {e}")
 
-                # 携程（备用，反爬严，可能拿不到数据）
-                try:
-                    ctrip_flights = ctrip_crawler.search(dep_code, arr_code, m.departure_date_start)
-                    all_flights.extend(ctrip_flights)
-                except Exception as e:
-                    print(f"[scheduler] ctrip error: {e}")
+                # 携程（备用，反爬严，暂不启用）
+                # try:
+                #     ctrip_flights = ctrip_crawler.search(dep_code, arr_code, m.departure_date_start)
+                #     all_flights.extend(ctrip_flights)
+                # except Exception as e:
+                #     print(f"[scheduler] ctrip error: {e}")
 
                 flights = all_flights
                 if not flights:
@@ -71,9 +71,10 @@ async def run_monitor_job():
                 # 保存样本
                 sample = PriceSample(
                     monitor_id=m.id,
+                    departure_date=m.departure_date_start,
                     best_price=best_price,
                     best_platform=best_platform,
-                    raw_data=str(flights[:5]),
+                    flight_detail=flights[:5],
                 )
                 db.add(sample)
 

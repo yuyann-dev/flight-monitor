@@ -34,10 +34,16 @@ def _code_to_name(code: str) -> str:
 class FliggyCrawler:
     name = "fliggy"
 
+    def __init__(self):
+        # None=正常/未知；"limited"=额度或限流；"transient"=临时失败/无数据
+        self.last_error_kind = None
+
     def search(self, dep_code: str, arr_code: str, dep_date: str,
                ret_date: str | None = None) -> list[dict]:
+        self.last_error_kind = None
         if not shutil.which("flyai"):
             print("[fliggy] flyai CLI not installed")
+            self.last_error_kind = "transient"
             return []
 
         cmd = [
@@ -57,6 +63,7 @@ class FliggyCrawler:
                 proc = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
                 if proc.returncode != 0:
                     print(f"[fliggy] flyai error: {proc.stderr[:200]}")
+                    self.last_error_kind = self._classify(proc.stderr)
                     return []
                 data = json.loads(proc.stdout)
                 if data.get("status") == 0:
@@ -66,16 +73,30 @@ class FliggyCrawler:
                 if attempt == 0 and "失败" in msg:
                     time.sleep(2)
                     continue
+                self.last_error_kind = self._classify(msg)
                 return []
             except subprocess.TimeoutExpired:
                 print("[fliggy] flyai timeout")
+                self.last_error_kind = "transient"
                 return []
             except Exception as e:
                 print(f"[fliggy] error: {e}")
+                self.last_error_kind = "transient"
                 return []
 
         if not data or data.get("status") != 0:
+            self.last_error_kind = "transient"
             return []
+
+    @staticmethod
+    def _classify(text: str) -> str:
+        """区分额度/限流（limited）与临时失败（transient）。"""
+        if not text:
+            return "transient"
+        limited_keys = ("429", "Trial limit", "额度", "次数已", "次数用完", "限流", "超出限额", "已用完", "quota", "rate limit")
+        if any(k.lower() in text.lower() for k in limited_keys):
+            return "limited"
+        return "transient"
 
         item_list = data.get("data", {}).get("itemList", [])
         flights = []

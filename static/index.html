@@ -57,13 +57,13 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
 /* Time window chips */
 .tw-chip { display: inline-flex; align-items: center; gap: 4px; background: #eef4fb; color: #4A90D9; padding: 6px 12px; border-radius: 14px; font-size: 13px; margin: 2px; cursor: pointer; border: none; touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
 .tw-chip.active { background: #4A90D9; color: #fff; }
-.tw-chip .x { cursor: pointer; font-weight: bold; }
+.tw-chip .x { cursor: pointer; font-weight: bold; background: none; border: none; padding: 0 2px; margin: 0; color: inherit; font: inherit; line-height: 1; }
 .tw-add { display: inline-flex; gap: 4px; align-items: center; margin-top: 6px; }
 .tw-add input[type=number] { width: 55px; padding: 4px 6px; border: 1px solid #ddd; border-radius: 6px; font-size: 13px; }
 
 /* Autocomplete suggest */
 .suggest-box { position: absolute; top: 100%; left: 0; right: 0; background: #fff; border: 1px solid #ddd; border-radius: 0 0 8px 8px; max-height: 200px; overflow-y: auto; z-index: 100; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
-.suggest-item { padding: 10px 14px; cursor: pointer; font-size: 14px; border-bottom: 1px solid #f0f0f0; }
+.suggest-item { display: block; width: 100%; text-align: left; background: #fff; border: none; padding: 10px 14px; cursor: pointer; font-size: 14px; border-bottom: 1px solid #f0f0f0; font-family: inherit; }
 .suggest-item:hover, .suggest-item.active { background: #f0f7ff; }
 .suggest-item small { color: #999; margin-left: 8px; }
 
@@ -138,6 +138,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
     <!-- Monitor List (上) -->
     <div class="card" id="monitorListCard">
       <h2>我的监控</h2>
+      <div id="listNightTip" style="display:none; background:#eef2f7; color:#5a6b7b; padding:10px 14px; border-radius:8px; font-size:12px; margin-bottom:12px; line-height:1.6;"></div>
       <div id="monitorList"></div>
     </div>
 
@@ -267,6 +268,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
       <!-- 航班列表 -->
       <div>
         <h3 style="font-size: 16px; margin-bottom: 12px;">最新航班（飞猪 / 飞常准比价，同一航班取最低价）</h3>
+        <div id="detailNightTip" style="display:none; background:#eef2f7; color:#5a6b7b; padding:10px 14px; border-radius:8px; font-size:12px; margin-bottom:12px; line-height:1.6;"></div>
         <div id="detailFlights"></div>
       </div>
     </div>
@@ -308,6 +310,22 @@ function formatHM(isoStr) {
 function formatTime(isoStr) {
   const d = new Date(isoStr);
   return `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+}
+
+// 调度窗口：每天 7:00–23:59 自动采集，凌晨 0:00–6:59 为夜间，不自动跑
+function isNight() {
+  return new Date().getHours() < 7;
+}
+
+function renderNightTips() {
+  const night = isNight();
+  const text = '当前为夜间（0:00–7:00），系统暂停自动采集；如需最新价格可点「立即刷新」手动查询，每天 7:00 后自动恢复监控。';
+  ['listNightTip', 'detailNightTip'].forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = text;
+    el.style.display = night ? '' : 'none';
+  });
 }
 
 function showLogin() {
@@ -363,11 +381,15 @@ async function loadMonitors() {
         </div>
       </div>
       <div style="text-align:left">
-        ${m.latest_price ? `<div style="font-size:12px; color:#999;">当前最低</div><div style="font-size:20px; font-weight:bold; color:#e74c3c;">¥${m.latest_price}</div><small style="color:#999;">历史最低 ¥${m.best_price}</small>` : '<div style="color:#aaa">采集中...</div>'}
+        ${m.latest_price ? `<div style="font-size:12px; color:#999;">当前最低</div><div style="font-size:20px; font-weight:bold; color:#e74c3c;">¥${m.latest_price}</div><small style="color:#999;">历史最低 ¥${m.best_price}</small>`
+          : (isNight()
+            ? '<div style="color:#5a6b7b; font-size:13px;">夜间暂停自动更新<br><small style="color:#999;">点进详情可手动刷新</small></div>'
+            : '<div style="color:#aaa">采集中...</div>')}
       </div>
       <button class="btn btn-danger btn-sm" onclick="event.stopPropagation(); stopMonitor(${m.id})">停止</button>
     </div>
   `).join('');
+  renderNightTips();
 }
 
 // 当前是否处于详情页（用于浏览器/手机返回键判断）
@@ -436,10 +458,15 @@ async function refreshDetail() {
   btn.textContent = '正在抓取...';
   try {
     const res = await api(`/api/monitors/${currentMonitorId}/refresh`, {method: 'POST'});
+    if (res.ok === false) {
+      toast(res.msg || '刷新次数已用完');
+      return;
+    }
     await loadDetail(currentMonitorId);
     let msg = '刷新完成';
     if (res.variflight_left !== undefined) msg += `，飞常准今日剩${res.variflight_left}次`;
     if (res.refresh_left !== undefined) msg += `，今日刷新剩${res.refresh_left}次`;
+    if (res.note) msg += `（${res.note}）`;
     toast(msg);
   } catch(e) {
     toast('刷新失败: ' + e.message);
@@ -450,6 +477,7 @@ async function refreshDetail() {
 }
 
 async function loadDetail(mid) {
+  renderNightTips();
   // 飞猪限流状态提示
   try {
     const st = await api('/api/system/status');
@@ -544,9 +572,13 @@ async function loadDetail(mid) {
       if (detailRes.stale) {
         document.getElementById('detailCurrentPrice').textContent = '--';
       }
-      flightsEl.innerHTML = detailRes.stale
-        ? '<div style="text-align:center; color:#e67e22; padding:20px;">数据源暂时不可用<br><span style="color:#999; font-size:12px;">正在等待数据恢复，不再显示旧数据避免误导</span></div>'
-        : '<div style="text-align:center; color:#e67e22; padding:20px;">暂未获取到航班数据<br><span style="color:#999; font-size:12px;">日期可能超出可查询范围，系统会持续监控</span></div>';
+      if (isNight()) {
+        flightsEl.innerHTML = '<div style="text-align:center; color:#5a6b7b; padding:20px;">夜间暂停自动采集（0:00–7:00）<br><span style="color:#999; font-size:12px;">点上方「立即刷新」可手动查询最新价，7:00 后自动恢复监控</span></div>';
+      } else if (detailRes.stale) {
+        flightsEl.innerHTML = '<div style="text-align:center; color:#e67e22; padding:20px;">数据源暂时不可用<br><span style="color:#999; font-size:12px;">正在等待数据恢复，不再显示旧数据避免误导</span></div>';
+      } else {
+        flightsEl.innerHTML = '<div style="text-align:center; color:#e67e22; padding:20px;">暂未获取到航班数据<br><span style="color:#999; font-size:12px;">日期可能超出可查询范围，系统会持续监控</span></div>';
+      }
     } else {
       flightsEl.innerHTML = flights.map(f => {
         const platformClass = f.platform === '飞常准' ? 'tag-variflight' : 'tag-fliggy';
@@ -687,7 +719,7 @@ function addEditTw(boxId, startId, endId) {
   chip.type = 'button';
   chip.className = 'tw-chip active';
   chip.dataset.val = s + '-' + e;
-  chip.innerHTML = s + ':00-' + e + ':00 <span class="x" onclick="this.parentElement.remove()">×</span>';
+  chip.innerHTML = s + ':00-' + e + ':00 <button type="button" class="x" onclick="this.parentElement.remove()">×</button>';
   box.appendChild(chip);
   document.getElementById(startId).value = '';
   document.getElementById(endId).value = '';
@@ -734,13 +766,26 @@ function addTw(boxId, startId, endId) {
   const chip = document.createElement('button'); chip.type='button';
   chip.className = 'tw-chip active';
   chip.dataset.val = s + '-' + e;
-  chip.innerHTML = s + ':00-' + e + ':00 <span class="x" onclick="this.parentElement.remove()">×</span>';
+  chip.innerHTML = s + ':00-' + e + ':00 <button type="button" class="x" onclick="this.parentElement.remove()">×</button>';
   box.appendChild(chip);
   document.getElementById(startId).value = '';
   document.getElementById(endId).value = '';
 }
 
 async function createMonitor() {
+  // 保存前自动收集输入框里未点“+添加”的有效时段，避免用户漏点
+  const flushNew = (boxId, sId, eId) => {
+    const s = parseInt(document.getElementById(sId).value);
+    const e = parseInt(document.getElementById(eId).value);
+    if (!isNaN(s) && !isNaN(e) && s >= 0 && e <= 24 && s < e) {
+      const box = document.getElementById(boxId);
+      const exists = Array.from(box.querySelectorAll('.tw-chip')).some(c => c.dataset.val === s + '-' + e);
+      if (!exists) addTw(boxId, sId, eId);
+    }
+  };
+  flushNew('depTimeBoxes', 'depTwStart', 'depTwEnd');
+  flushNew('arrTimeBoxes', 'arrTwStart', 'arrTwEnd');
+
   const getWindows = boxId =>
     Array.from(document.querySelectorAll('#' + boxId + ' .tw-chip.active'))
       .map(el => el.dataset.val.split('-').map(Number));
@@ -863,7 +908,7 @@ function filterCities(inputEl, boxId) {
   const matches = CITIES.filter(c => c[0].includes(q)).slice(0, 8);
   if (!matches.length) { box.classList.add('hidden'); return; }
   box.innerHTML = matches.map(c =>
-    `<div class="suggest-item" onclick="pickCity('${inputEl.id}','${boxId}','${c[0]}')">${c[0]}<small>${c[1]} ${c[2]}</small></div>`
+    `<button type="button" class="suggest-item" onclick="pickCity('${inputEl.id}','${boxId}','${c[0]}')">${c[0]}<small>${c[1]} ${c[2]}</small></button>`
   ).join('');
   box.classList.remove('hidden');
 }

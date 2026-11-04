@@ -1,4 +1,5 @@
 """FastAPI main app."""
+import asyncio
 from fastapi import FastAPI, Depends, HTTPException, Request, BackgroundTasks
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -11,6 +12,17 @@ from app.scheduler import start_scheduler
 
 app = FastAPI(title="Flight Monitor")
 init_db()
+
+# 持有后台采集任务引用，避免事件循环弱引用导致任务被提前 GC 取消
+_bg_tasks: set = set()
+
+
+def _spawn_crawl(monitor_id: int):
+    """后台触发单条采集，任务完成后自动从集合移除。"""
+    from app.scheduler import run_single_monitor
+    task = asyncio.create_task(run_single_monitor(monitor_id))
+    _bg_tasks.add(task)
+    task.add_done_callback(_bg_tasks.discard)
 
 
 # ── 鉴权依赖 ──
@@ -189,9 +201,7 @@ async def create_monitor(req: MonitorCreate, user: User = Depends(get_current_us
         db.add(m)
         db.commit()
         # 后台异步先爬一次，不阻塞响应
-        import asyncio
-        from app.scheduler import run_single_monitor
-        asyncio.create_task(run_single_monitor(m.id))
+        _spawn_crawl(m.id)
         return {"ok": True, "id": m.id}
     finally:
         db.close()
@@ -235,9 +245,7 @@ async def update_monitor(mid: int, req: MonitorUpdate, user: User = Depends(get_
             m.arrival_time_windows = data["arrival_time_windows"] or []
         db.commit()
         # 后台立即重新采集一次，让新条件立刻生效
-        import asyncio
-        from app.scheduler import run_single_monitor
-        asyncio.create_task(run_single_monitor(m.id))
+        _spawn_crawl(m.id)
         return {"ok": True}
     finally:
         db.close()
@@ -366,22 +374,25 @@ async def monitor_refresh(mid: int, user: User = Depends(get_current_user)):
     quota_file = Path(settings.database_url.replace("sqlite:///", "")).parent / ".variflight_daily_quota"
 
     if is_owner:
-        # 主人：飞猪不限额，飞常准每天3次
+        # 主人：飞猪手动刷新不限额；飞常准每天最多3次，且只有飞猪失败时才消耗
         used_today = 0
         if quota_file.exists():
             try:
                 d, c = quota_file.read_text().strip().split(":")
                 if d == today: used_today = int(c)
             except Exception: pass
-        if used_today >= 3:
-            return {"ok": False, "msg": "飞常准今日手动刷新次数已用完（3次），明天自动恢复"}
-        variflight_used = await run_single_monitor(mid, manual_refresh=True)
+        allow_variflight = used_today < 3
+        variflight_used = await run_single_monitor(mid, manual_refresh=True, allow_variflight=allow_variflight)
         if variflight_used:
             quota_file.write_text(f"{today}:{used_today + 1}")
-            return {"ok": True, "variflight_left": 3 - used_today - 1}
+            left = 3 - used_today - 1
+            return {"ok": True, "variflight_left": left}
+        # 飞猪直接成功、或飞常准额度已用尽未启用：飞猪刷新不受限
+        if not allow_variflight:
+            return {"ok": True, "variflight_left": 0, "note": "飞常准今日3次已用完，本次仅用飞猪查询"}
         return {"ok": True, "variflight_left": 3 - used_today}
     else:
-        # 其他用户：手动刷新每天限1次
+        # 其他用户：手动刷新每天限10次；飞常准是否可用由后端任务归属规则控制
         other_quota = Path(settings.database_url.replace("sqlite:///", "")).parent / ".other_refresh_quota"
         used = 0
         if other_quota.exists():

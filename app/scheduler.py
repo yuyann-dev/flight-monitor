@@ -164,8 +164,11 @@ def _variflight_allowed_for(db, monitor) -> bool:
     return monitor.user_id == owner.id
 
 
-async def run_single_monitor(mid: int, manual_refresh: bool = False) -> bool:
-    """Crawl a single monitor. Returns True if variflight was actually used."""
+async def run_single_monitor(mid: int, manual_refresh: bool = False, allow_variflight: bool = True) -> bool:
+    """Crawl a single monitor. Returns True if variflight was actually used.
+
+    allow_variflight=False 时即便手动刷新也不启用飞常准（用于每日额度用尽后仍可用飞猪刷新）。
+    """
     db = SessionLocal()
     variflight_used = False
     try:
@@ -185,7 +188,7 @@ async def run_single_monitor(mid: int, manual_refresh: bool = False) -> bool:
         # 数据源策略：自动轮次只用飞猪，飞常准额度留给手动刷新
         fliggy = FliggyCrawler()
         variflight = None
-        if manual_refresh and _variflight_allowed_for(db, m):
+        if manual_refresh and allow_variflight and _variflight_allowed_for(db, m):
             variflight = VariflightCrawler(
                 api_key=settings.variflight_mcp_key,
                 min_interval_hours=0,  # 手动刷新不节流，由每日次数限制控制
@@ -201,8 +204,9 @@ async def run_single_monitor(mid: int, manual_refresh: bool = False) -> bool:
                 day_flights.extend(found)
             except Exception as e:
                 print(f"[scheduler] {date_str} 飞猪 error: {e}")
-                if "429" in str(e) or "Trial limit" in str(e):
-                    fliggy_hit_limit = True
+            # 以爬虫自报的错误类型为准：明确额度/限流才点亮限流标记，临时失败不误报
+            if getattr(fliggy, "last_error_kind", None) == "limited":
+                fliggy_hit_limit = True
 
             # 手动刷新且飞猪没数据时才用飞常准
             if not day_flights and variflight:

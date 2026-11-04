@@ -389,11 +389,13 @@ async function loadDetail(mid) {
   document.getElementById('detailTitle').textContent = `${m.departure_city} → ${m.arrival_city}`;
   const cabinText = m.cabin_class === 'economy' ? '经济舱' : (m.cabin_class || '经济舱');
   document.getElementById('detailSubtitle').textContent = `${m.departure_date}${m.return_date ? ' ~ ' + m.return_date : ' 单程'} · ${cabinText}`;
-  document.getElementById('detailCurrentPrice').textContent = m.best_price ? `¥${m.best_price}` : '采集中...';
+  // 当前价格从最新一条 history 取，不是 best_price_ever（那是历史最低）
+  const history = await api(`/api/monitors/${mid}/history`);
+  const latestPrice = history.length ? history[history.length - 1].price : null;
+  document.getElementById('detailCurrentPrice').textContent = latestPrice ? `¥${latestPrice}` : '采集中...';
   document.getElementById('detailMinPrice').textContent = m.best_price ? `¥${m.best_price}` : '-';
   document.getElementById('detailMaxPrice').textContent = m.max_price ? `¥${m.max_price}` : '不限';
 
-  const history = await api(`/api/monitors/${mid}/history`);
   const labels = history.map(h => formatTime(h.time));
   const prices = history.map(h => h.price);
 

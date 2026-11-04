@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>机票监控</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f0f2f5; color: #333; }
+
+/* Login */
+.login-wrap { max-width: 400px; margin: 100px auto; background: #fff; border-radius: 16px; padding: 40px; box-shadow: 0 4px 24px rgba(0,0,0,0.08); }
+.login-wrap h1 { text-align: center; margin-bottom: 8px; font-size: 24px; }
+.login-wrap p { text-align: center; color: #999; margin-bottom: 28px; font-size: 14px; }
+.input-group { margin-bottom: 16px; }
+.input-group label { display: block; font-size: 13px; color: #666; margin-bottom: 6px; }
+.input-group input, .input-group select { width: 100%; padding: 10px 14px; border: 1px solid #ddd; border-radius: 8px; font-size: 14px; outline: none; transition: border .2s; }
+.input-group input:focus { border-color: #4A90D9; }
+.btn { display: inline-block; padding: 10px 20px; border: none; border-radius: 8px; font-size: 14px; cursor: pointer; transition: all .2s; }
+.btn-primary { background: #4A90D9; color: #fff; width: 100%; }
+.btn-primary:hover { background: #3a7bc8; }
+.btn-sm { padding: 6px 14px; font-size: 13px; }
+.btn-danger { background: #e74c3c; color: #fff; }
+.btn-outline { background: #fff; border: 1px solid #ddd; color: #666; }
+.code-row { display: flex; gap: 8px; }
+.code-row input { flex: 1; }
+
+/* App */
+.app-header { background: #fff; padding: 16px 32px; box-shadow: 0 1px 4px rgba(0,0,0,0.06); display: flex; justify-content: space-between; align-items: center; }
+.app-header h1 { font-size: 20px; color: #4A90D9; }
+.app-header .user-info { font-size: 14px; color: #666; }
+.container { max-width: 1100px; margin: 24px auto; padding: 0 16px; }
+
+.card { background: #fff; border-radius: 12px; padding: 24px; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.04); }
+.card h2 { font-size: 18px; margin-bottom: 16px; }
+
+.form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.form-grid .full { grid-column: 1 / -1; }
+.form-row { display: flex; gap: 12px; align-items: center; }
+.form-row label { font-size: 14px; min-width: 100px; }
+
+/* Monitor list */
+.monitor-item { border: 1px solid #eee; border-radius: 10px; padding: 16px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; }
+.monitor-route { font-size: 16px; font-weight: 600; }
+.monitor-meta { font-size: 13px; color: #999; margin-top: 4px; }
+.monitor-price { font-size: 22px; font-weight: bold; color: #e74c3c; }
+.monitor-price small { font-size: 12px; color: #999; font-weight: normal; }
+
+.empty { text-align: center; color: #aaa; padding: 40px; }
+.hidden { display: none !important; }
+
+/* Toast */
+.toast { position: fixed; top: 20px; right: 20px; background: #333; color: #fff; padding: 12px 20px; border-radius: 8px; z-index: 999; }
+</style>
+</head>
+<body>
+
+<!-- Login Page -->
+<div id="loginPage" class="login-wrap">
+  <h1>✈️ 机票监控</h1>
+  <p>低价不错过，自动提醒</p>
+  <div id="loginStep1">
+    <div class="input-group">
+      <label>邮箱</label>
+      <input type="email" id="loginEmail" placeholder="you@example.com">
+    </div>
+    <button class="btn btn-primary" onclick="sendCode()">发送验证码</button>
+  </div>
+  <div id="loginStep2" class="hidden">
+    <div class="input-group">
+      <label>验证码</label>
+      <div class="code-row">
+        <input type="text" id="loginCode" placeholder="6位验证码">
+        <button class="btn btn-outline btn-sm" onclick="sendCode()">重发</button>
+      </div>
+    </div>
+    <button class="btn btn-primary" onclick="verifyCode()">登录</button>
+  </div>
+</div>
+
+<!-- Main App -->
+<div id="appPage" class="hidden">
+  <div class="app-header">
+    <h1>✈️ 机票监控</h1>
+    <div class="user-info">
+      <span id="userEmail"></span>
+      <button class="btn btn-outline btn-sm" onclick="logout()" style="margin-left:12px">退出</button>
+    </div>
+  </div>
+  <div class="container">
+
+    <!-- New Monitor Form -->
+    <div class="card">
+      <h2>新建监控任务</h2>
+      <div class="form-grid">
+        <div class="input-group">
+          <label>出发城市</label>
+          <input type="text" id="depCity" placeholder="成都 / CTU">
+        </div>
+        <div class="input-group">
+          <label>到达城市</label>
+          <input type="text" id="arrCity" placeholder="上海 / PVG">
+        </div>
+        <div class="input-group">
+          <label>出发日期（起）</label>
+          <input type="date" id="depDateStart">
+        </div>
+        <div class="input-group">
+          <label>出发日期（止）</label>
+          <input type="date" id="depDateEnd">
+        </div>
+        <div class="input-group">
+          <label>返程日期（起，单程留空）</label>
+          <input type="date" id="retDateStart">
+        </div>
+        <div class="input-group">
+          <label>返程日期（止）</label>
+          <input type="date" id="retDateEnd">
+        </div>
+        <div class="input-group">
+          <label>舱位</label>
+          <select id="cabinClass">
+            <option value="economy">经济舱</option>
+            <option value="business">商务舱</option>
+            <option value="first">头等舱</option>
+          </select>
+        </div>
+        <div class="input-group">
+          <label>心理价位（元）</label>
+          <input type="number" id="maxPrice" placeholder="到价即提醒">
+        </div>
+        <div class="input-group">
+          <label>出发时段（如 6:00-12:00，可加多个）</label>
+          <input type="text" id="depTimeWindows" placeholder="6-12, 18-23">
+        </div>
+        <div class="input-group">
+          <label>到达时段</label>
+          <input type="text" id="arrTimeWindows" placeholder="10-18">
+        </div>
+        <div class="form-row full">
+          <label><input type="checkbox" id="directOnly"> 仅直飞</label>
+          <label><input type="checkbox" id="baggageRequired"> 需要免费托运行李</label>
+        </div>
+      </div>
+      <button class="btn btn-primary" onclick="createMonitor()" style="margin-top:16px">开始监控</button>
+    </div>
+
+    <!-- Monitor List -->
+    <div class="card">
+      <h2>我的监控</h2>
+      <div id="monitorList"></div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+const API = '';
+
+async function api(path, opts={}) {
+  const res = await fetch(API + path, { credentials: 'include', headers: {'Content-Type':'application/json'}, ...opts });
+  if (res.status === 401) { showLogin(); throw new Error('unauthorized'); }
+  return res.json();
+}
+
+function toast(msg) {
+  const t = document.createElement('div');
+  t.className = 'toast'; t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 2500);
+}
+
+function showLogin() {
+  document.getElementById('loginPage').classList.remove('hidden');
+  document.getElementById('appPage').classList.add('hidden');
+}
+function showApp() {
+  document.getElementById('loginPage').classList.add('hidden');
+  document.getElementById('appPage').classList.remove('hidden');
+  loadMonitors();
+}
+
+async function sendCode() {
+  const email = document.getElementById('loginEmail').value.trim();
+  if (!email) return toast('请输入邮箱');
+  await api('/api/auth/send-code', {method:'POST', body: JSON.stringify({email})});
+  document.getElementById('loginStep1').classList.add('hidden');
+  document.getElementById('loginStep2').classList.remove('hidden');
+  toast('验证码已发送');
+}
+
+async function verifyCode() {
+  const email = document.getElementById('loginEmail').value.trim();
+  const code = document.getElementById('loginCode').value.trim();
+  const res = await api('/api/auth/verify', {method:'POST', body: JSON.stringify({email, code})});
+  if (res.ok) {
+    document.getElementById('userEmail').textContent = email;
+    showApp();
+  }
+}
+
+async function logout() {
+  await api('/api/auth/logout', {method:'POST'});
+  showLogin();
+}
+
+async function loadMonitors() {
+  const list = await api('/api/monitors');
+  const el = document.getElementById('monitorList');
+  if (!list.length) { el.innerHTML = '<div class="empty">暂无监控任务，上方新建一个吧</div>'; return; }
+  el.innerHTML = list.map(m => `
+    <div class="monitor-item">
+      <div>
+        <div class="monitor-route">${m.departure_city} → ${m.arrival_city}</div>
+        <div class="monitor-meta">
+          ${m.departure_date}${m.return_date ? ' ~ ' + m.return_date : ' 单程'}
+          ${m.last_checked ? ' · 最近更新 ' + new Date(m.last_checked).toLocaleString() : ''}
+        </div>
+      </div>
+      <div style="text-align:center">
+        ${m.best_price ? `<div class="monitor-price">¥${m.best_price}<small> 历史最低</small></div>` : '<div style="color:#aaa">采集中...</div>'}
+      </div>
+      <button class="btn btn-danger btn-sm" onclick="stopMonitor(${m.id})">停止</button>
+    </div>
+  `).join('');
+}
+
+async function createMonitor() {
+  const parseWindows = str => {
+    if (!str.trim()) return [];
+    return str.split(',').map(s => s.trim().split('-').map(Number)).filter(a => a.length === 2);
+  };
+  const body = {
+    departure_city: document.getElementById('depCity').value.trim(),
+    arrival_city: document.getElementById('arrCity').value.trim(),
+    departure_date_start: document.getElementById('depDateStart').value,
+    departure_date_end: document.getElementById('depDateEnd').value,
+    return_date_start: document.getElementById('retDateStart').value || null,
+    return_date_end: document.getElementById('retDateEnd').value || null,
+    cabin_class: document.getElementById('cabinClass').value,
+    direct_only: document.getElementById('directOnly').checked,
+    baggage_required: document.getElementById('baggageRequired').checked,
+    max_price: parseInt(document.getElementById('maxPrice').value) || null,
+    departure_time_windows: parseWindows(document.getElementById('depTimeWindows').value),
+    arrival_time_windows: parseWindows(document.getElementById('arrTimeWindows').value),
+  };
+  if (!body.departure_city || !body.arrival_city || !body.departure_date_start) return toast('请填写城市和日期');
+  await api('/api/monitors', {method:'POST', body: JSON.stringify(body)});
+  toast('监控已开启');
+  loadMonitors();
+}
+
+async function stopMonitor(id) {
+  await api('/api/monitors/' + id, {method:'DELETE'});
+  toast('已停止监控');
+  loadMonitors();
+}
+
+// Check auth on load
+(async () => {
+  try {
+    const me = await api('/api/auth/me');
+    document.getElementById('userEmail').textContent = me.email;
+    showApp();
+  } catch(e) { showLogin(); }
+})();
+</script>
+</body>
+</html>

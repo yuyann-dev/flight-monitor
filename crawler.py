@@ -20,15 +20,19 @@ async def crawl_ctrip(page, dep, arr, date):
     try:
         await page.goto(url, wait_until="domcontentloaded", timeout=20000)
         await page.wait_for_timeout(8000)
+        title = await page.title()
+        print(f"[ctrip] title='{title}'")
+        await page.screenshot(path="/tmp/ctrip.png")
         prices = await page.evaluate("""
             () => {
                 const els = document.querySelectorAll('.base-od-list-box--price, [class*="price--"], .price');
                 return Array.from(els).map(e => e.innerText.replace(/[^0-9]/g, '')).filter(Boolean).slice(0, 10);
             }
         """)
+        print(f"[ctrip] found {len(prices)} prices: {prices[:5]}")
         return [int(p) for p in prices if len(p) >= 3]
     except Exception as e:
-        print(f"ctrip error: {e}")
+        print(f"[ctrip] error: {e}")
         return []
 
 
@@ -37,15 +41,19 @@ async def crawl_qunar(page, dep, arr, date):
     try:
         await page.goto(url, wait_until="domcontentloaded", timeout=20000)
         await page.wait_for_timeout(10000)
+        title = await page.title()
+        print(f"[qunar] title='{title}'")
+        await page.screenshot(path="/tmp/qunar.png")
         prices = await page.evaluate("""
             () => {
                 const els = document.querySelectorAll('.m--layer--price, [class*="price"]');
                 return Array.from(els).map(e => e.innerText.replace(/[^0-9]/g, '')).filter(Boolean).slice(0, 10);
             }
         """)
+        print(f"[qunar] found {len(prices)} prices: {prices[:5]}")
         return [int(p) for p in prices if len(p) >= 3]
     except Exception as e:
-        print(f"qunar error: {e}")
+        print(f"[qunar] error: {e}")
         return []
 
 

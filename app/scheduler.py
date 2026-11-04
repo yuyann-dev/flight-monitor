@@ -271,7 +271,6 @@ async def run_single_monitor(mid: int, manual_refresh: bool = False):
         if not flights:
             print(f"[scheduler] no flights for monitor {m.id}")
             m.last_checked_at = datetime.utcnow()
-            return
             db.commit()
             return
 

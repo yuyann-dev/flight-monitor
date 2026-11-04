@@ -275,6 +275,9 @@ async def exclude_flight(mid: int, body: dict, user: User = Depends(get_current_
 async def monitor_history(mid: int, user: User = Depends(get_current_user)):
     db = SessionLocal()
     try:
+        monitor = db.query(Monitor).filter(Monitor.id == mid, Monitor.user_id == user.id).first()
+        if not monitor:
+            raise HTTPException(status_code=404)
         samples = (
             db.query(PriceSample)
             .filter(PriceSample.monitor_id == mid)
@@ -320,7 +323,9 @@ async def monitor_latest_detail(mid: int, user: User = Depends(get_current_user)
     from app.analyzer import compute_fees
     db = SessionLocal()
     try:
-        monitor = db.query(Monitor).filter(Monitor.id == mid).first()
+        monitor = db.query(Monitor).filter(Monitor.id == mid, Monitor.user_id == user.id).first()
+        if not monitor:
+            raise HTTPException(status_code=404)
         sample = (
             db.query(PriceSample)
             .filter(PriceSample.monitor_id == mid)
@@ -349,7 +354,9 @@ async def monitor_refresh(mid: int, user: User = Depends(get_current_user)):
     import time as _time
     db = SessionLocal()
     try:
-        monitor = db.query(Monitor).filter(Monitor.id == mid).first()
+        monitor = db.query(Monitor).filter(Monitor.id == mid, Monitor.user_id == user.id).first()
+        if not monitor:
+            raise HTTPException(status_code=404)
         owner = db.query(User).filter(User.email == settings.owner_email).first()
         is_owner = owner and user.id == owner.id
     finally:

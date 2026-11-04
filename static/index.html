@@ -622,6 +622,10 @@ function renderConditions(m, editing) {
          <input type="date" id="editDepEnd" value="${m.departure_date_end}" style="padding:6px;border:1px solid #ddd;border-radius:6px;font-size:13px;">
        </div>
      </div>
+     <div style="margin-bottom:10px;">
+       <div style="font-size:12px;color:#666;margin-bottom:4px;">心理价位（裸票，¥，留空不限）</div>
+       <input type="number" id="editMaxPrice" value="${m.max_price ?? ''}" placeholder="如 350" style="width:120px;padding:6px;border:1px solid #ddd;border-radius:6px;font-size:13px;">
+     </div>
      <div style="margin-bottom:10px;display:flex;gap:16px;flex-wrap:wrap;">
        <label style="font-size:13px;color:#333;display:flex;align-items:center;gap:4px;"><input type="checkbox" id="editDirect" ${m.direct_only?'checked':''}> 仅直飞</label>
        <label style="font-size:13px;color:#333;display:flex;align-items:center;gap:4px;"><input type="checkbox" id="editBag" ${m.baggage_required?'checked':''}> 需要免费托运行李</label>
@@ -679,6 +683,7 @@ async function saveConditions() {
     departure_date_end: document.getElementById('editDepEnd').value,
     direct_only: document.getElementById('editDirect').checked,
     baggage_required: document.getElementById('editBag').checked,
+    max_price: parseInt(document.getElementById('editMaxPrice').value) || null,
     departure_time_windows: getWin('editDepWin'),
     arrival_time_windows: getWin('editArrWin'),
   };

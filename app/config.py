@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     admin_email: str = ""  # 管理员邮箱，用于cookie过期提醒
 
     # 抓取配置
-    crawl_interval_minutes: int = 180  # 默认3小时一轮
+    crawl_interval_minutes: int = 30  # 默认30分钟一轮
     request_delay_min: float = 3.0     # 平台间最小延迟(秒)
     request_delay_max: float = 8.0     # 平台间最大延迟(秒)
     max_retries: int = 2

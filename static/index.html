@@ -278,7 +278,7 @@ let currentFees = { total_fee: 190 };
 let currentMonitor = null;
 
 async function api(path, opts={}) {
-  const res = await fetch(API + path, { credentials: 'include', headers: {'Content-Type':'application/json'}, ...opts });
+  const res = await fetch(API + path, { credentials: 'include', headers: {'Content-Type':'application/json'}, cache: 'no-store', ...opts });
   if (res.status === 401) { showLogin(); throw new Error('unauthorized'); }
   return res.json();
 }

@@ -302,6 +302,12 @@ async def run_single_monitor(mid: int, manual_refresh: bool = False):
                 flight_detail=flights[:50],
             )
             db.add(sample)
+        elif last_sample:
+            # 价格没变不新建sample，但更新航班列表（筛选条件可能变了）
+            last_sample.flight_detail = flights[:50]
+            last_sample.departure_date = cheapest_date
+            last_sample.best_platform = best_platform
+            last_sample.checked_at = now
 
         m.last_checked_at = now
         if not m.best_price_ever or best_price < m.best_price_ever:

@@ -136,21 +136,26 @@ async def list_monitors(user: User = Depends(get_current_user)):
     db = SessionLocal()
     try:
         monitors = db.query(Monitor).filter(Monitor.user_id == user.id, Monitor.is_active == True).all()
-        return [
-            {
+        result = []
+        for m in monitors:
+            # 查最新一条 sample 的价格
+            latest = db.query(PriceSample).filter(
+                PriceSample.monitor_id == m.id
+            ).order_by(PriceSample.checked_at.desc()).first()
+            result.append({
                 "id": m.id,
                 "departure_city": m.departure_city,
                 "arrival_city": m.arrival_city,
                 "departure_date": m.departure_date_start,
                 "return_date": m.return_date_start,
                 "best_price": m.best_price_ever,
+                "latest_price": latest.best_price if latest else None,
                 "last_checked": m.last_checked_at.isoformat() + "Z" if m.last_checked_at else None,
                 "is_active": m.is_active,
                 "max_price": m.max_price,
                 "cabin_class": m.cabin_class,
-            }
-            for m in monitors
-        ]
+            })
+        return result
     finally:
         db.close()
 

@@ -528,10 +528,19 @@ async function loadDetail(mid) {
           return true;
         });
       }
+
+      // 过滤后重新计算最低价，更新当前最低显示
+      if (filteredFlights.length > 0) {
+        const filteredMinPrice = Math.min(...filteredFlights.map(f => f.price));
+        document.getElementById('detailCurrentPrice').textContent = `¥${filteredMinPrice}`;
+      }
       flightsEl.innerHTML = filteredFlights.map(f => `
         <div style="border: 1px solid #eee; border-radius: 10px; padding: 14px; margin-bottom: 10px;">
           <div style="display: flex; justify-content: space-between; align-items: flex-start;">
             <div style="flex: 1;">
+              <div style="font-size: 12px; color: #999; margin-bottom: 4px;">
+                ${f.date || ''}
+              </div>
               <div style="font-weight: 600; margin-bottom: 4px;">
                 ${f.airline || '未知航司'} ${f.flight_no || ''}
                 ${f.is_direct ? '<span style="font-size:11px; background:#e8f5e9; color:#2e7d32; padding:2px 6px; border-radius:4px; margin-left:6px;">直飞</span>' : '<span style="font-size:11px; background:#fff3e0; color:#e65100; padding:2px 6px; border-radius:4px; margin-left:6px;">中转</span>'}

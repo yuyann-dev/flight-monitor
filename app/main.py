@@ -364,7 +364,17 @@ async def monitor_latest_detail(mid: int, user: User = Depends(get_current_user)
         )
         if no_match:
             return {"flights": [], "fees": fees, "stale": False, "no_match": True}
-        return {"flights": sample.flight_detail or [], "fees": fees}
+        # 样本快照是采集时落库的，这里按“不关注”列表实时过滤，使用户剔除即时生效，
+        # 不必等下一轮采集才从页面消失
+        excluded = {
+            (e.get("flight_no"), e.get("date"))
+            for e in (monitor.excluded_flights or [])
+        }
+        flights = [
+            f for f in (sample.flight_detail or [])
+            if (f.get("flight_no"), f.get("date")) not in excluded
+        ]
+        return {"flights": flights, "fees": fees}
     finally:
         db.close()
 

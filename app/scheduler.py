@@ -75,6 +75,12 @@ async def run_single_monitor(mid: int):
 
         flights = all_flights
 
+        # 只看直飞过滤
+        if m.direct_only:
+            before = len(flights)
+            flights = [f for f in flights if f.get("is_direct")]
+            print(f"[scheduler] direct_only: {before} -> {len(flights)} flights")
+
         # 过滤掉用户手动剔除的航班
         excluded = m.excluded_flights or []
         if excluded:

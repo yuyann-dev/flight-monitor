@@ -349,6 +349,7 @@ async function showDetail(mid) {
   currentMonitorId = mid;
   document.getElementById('monitorListCard').classList.add('hidden');
   document.getElementById('monitorDetailCard').classList.remove('hidden');
+  window.scrollTo(0, 0);
   await loadDetail(mid);
 }
 
@@ -432,21 +433,26 @@ async function loadDetail(mid) {
       flightsEl.innerHTML = '<div style="text-align:center; color:#e67e22; padding: 20px;">暂未获取到航班数据<br><small style="color:#999;">可能原因：日期太远（flyai免费版仅支持近期航班）、或航线暂无机票</small></div>';
     } else {
       flightsEl.innerHTML = flights.map(f => `
-        <div style="border: 1px solid #eee; border-radius: 10px; padding: 14px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center;">
-          <div style="flex: 1;">
-            <div style="font-weight: 600; margin-bottom: 4px;">
-              ${f.airline || '未知航司'} ${f.flight_no || ''}
-              ${f.is_direct ? '<span style="font-size:11px; background:#e8f5e9; color:#2e7d32; padding:2px 6px; border-radius:4px; margin-left:6px;">直飞</span>' : '<span style="font-size:11px; background:#fff3e0; color:#e65100; padding:2px 6px; border-radius:4px; margin-left:6px;">中转</span>'}
+        <div style="border: 1px solid #eee; border-radius: 10px; padding: 14px; margin-bottom: 10px;">
+          <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+            <div style="flex: 1;">
+              <div style="font-weight: 600; margin-bottom: 4px;">
+                ${f.airline || '未知航司'} ${f.flight_no || ''}
+                ${f.is_direct ? '<span style="font-size:11px; background:#e8f5e9; color:#2e7d32; padding:2px 6px; border-radius:4px; margin-left:6px;">直飞</span>' : '<span style="font-size:11px; background:#fff3e0; color:#e65100; padding:2px 6px; border-radius:4px; margin-left:6px;">中转</span>'}
+              </div>
+              <div style="font-size: 13px; color: #666;">
+                ${f.dep_time ? f.dep_time.substring(11, 16) : '--'} ${f.dep_airport || ''} → ${f.arr_time ? f.arr_time.substring(11, 16) : '--'} ${f.arr_airport || ''}
+              </div>
+              <div style="font-size: 11px; color: #999; margin-top: 4px;">
+                免费托运 20kg · 手提 7kg（廉航以航司实际为准）
+              </div>
             </div>
-            <div style="font-size: 13px; color: #666;">
-              ${f.dep_time ? f.dep_time.substring(11, 16) : '--'} ${f.dep_airport || ''} → ${f.arr_time ? f.arr_time.substring(11, 16) : '--'} ${f.arr_airport || ''}
+            <div style="text-align: right; margin-right: 12px;">
+              <div style="font-size: 20px; font-weight: bold; color: #e74c3c;">¥${f.price}</div>
+              <div style="font-size: 11px; color: #999;">+机建燃油¥190</div>
             </div>
           </div>
-          <div style="text-align: right; margin-right: 12px;">
-            <div style="font-size: 20px; font-weight: bold; color: #e74c3c;">¥${f.price}</div>
-            <div style="font-size: 11px; color: #999;">+机建燃油¥190</div>
-          </div>
-          ${f.link ? `<a href="${f.link}" target="_blank" class="btn btn-primary btn-sm">去购买</a>` : ''}
+          ${f.link ? `<a href="${f.link}" target="_blank" class="btn btn-primary btn-sm" style="margin-top:10px; display:block; text-align:center;">去购买</a>` : ''}
         </div>
       `).join('');
     }

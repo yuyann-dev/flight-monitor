@@ -539,6 +539,9 @@ async function loadDetail(mid) {
     const flights = detailRes.flights || [];
 
     if (!flights.length || detailRes.stale) {
+      if (detailRes.stale) {
+        document.getElementById('detailCurrentPrice').textContent = '--';
+      }
       flightsEl.innerHTML = detailRes.stale
         ? '<div style="text-align:center; color:#e67e22; padding:20px;">数据源暂时不可用<br><span style="color:#999; font-size:12px;">正在等待数据恢复，不再显示旧数据避免误导</span></div>'
         : '<div style="text-align:center; color:#e67e22; padding:20px;">暂未获取到航班数据<br><span style="color:#999; font-size:12px;">日期可能超出可查询范围，系统会持续监控</span></div>';

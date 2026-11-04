@@ -162,14 +162,15 @@ def _variflight_allowed_for(db, monitor) -> bool:
     return monitor.user_id == owner.id
 
 
-async def run_single_monitor(mid: int, manual_refresh: bool = False):
-    """Crawl a single monitor and analyze prices."""
+async def run_single_monitor(mid: int, manual_refresh: bool = False) -> bool:
+    """Crawl a single monitor. Returns True if variflight was actually used."""
     db = SessionLocal()
+    variflight_used = False
     try:
         m = db.query(Monitor).filter(Monitor.id == mid, Monitor.is_active == True).first()
         if not m:
             print(f"[scheduler] monitor {mid} not found or inactive")
-            return
+            return False
 
         print(f"[scheduler] running single monitor {mid}: {m.departure_city}->{m.arrival_city}")
 
@@ -207,6 +208,7 @@ async def run_single_monitor(mid: int, manual_refresh: bool = False):
                     found = variflight.search(dep_code, arr_code, date_str)
                     day_flights.extend(found)
                     if found:
+                        variflight_used = True
                         print(f"[scheduler] {date_str} 飞常准补上 {len(found)} 班")
                 except Exception as e:
                     print(f"[scheduler] {date_str} 飞常准 error: {e}")
@@ -272,7 +274,7 @@ async def run_single_monitor(mid: int, manual_refresh: bool = False):
             print(f"[scheduler] no flights for monitor {m.id}")
             m.last_checked_at = datetime.utcnow()
             db.commit()
-            return
+            return variflight_used
 
         # 合并函数已按价格排序，这里取本次真实最低价/平台/日期，保证价格曲线真实
         best_price = flights[0]["price"]
@@ -342,9 +344,11 @@ async def run_single_monitor(mid: int, manual_refresh: bool = False):
 
         db.commit()
         print(f"[scheduler] monitor {mid} done, cheapest: ¥{best_price}, saved_new={save_new}")
+        return variflight_used
     except Exception as e:
         print(f"[scheduler] monitor {mid} error: {e}")
         db.rollback()
+        return False
     finally:
         db.close()
 

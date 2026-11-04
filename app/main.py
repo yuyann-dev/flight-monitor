@@ -363,9 +363,11 @@ async def monitor_refresh(mid: int, user: User = Depends(get_current_user)):
             except Exception: pass
         if used_today >= 3:
             return {"ok": False, "msg": "飞常准今日手动刷新次数已用完（3次），明天自动恢复"}
-        await run_single_monitor(mid, manual_refresh=True)
-        quota_file.write_text(f"{today}:{used_today + 1}")
-        return {"ok": True, "variflight_left": 3 - used_today - 1}
+        variflight_used = await run_single_monitor(mid, manual_refresh=True)
+        if variflight_used:
+            quota_file.write_text(f"{today}:{used_today + 1}")
+            return {"ok": True, "variflight_left": 3 - used_today - 1}
+        return {"ok": True, "variflight_left": 3 - used_today}
     else:
         # 其他用户：手动刷新每天限1次
         other_quota = Path(settings.database_url.replace("sqlite:///", "")).parent / ".other_refresh_quota"

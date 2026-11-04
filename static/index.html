@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>机票监控</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f0f2f5; color: #333; }
@@ -203,9 +204,34 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
     </div>
 
     <!-- Monitor List -->
-    <div class="card">
+    <div class="card" id="monitorListCard">
       <h2>我的监控</h2>
       <div id="monitorList"></div>
+    </div>
+
+    <!-- Monitor Detail -->
+    <div class="card hidden" id="monitorDetailCard">
+      <button class="btn btn-outline btn-sm" onclick="backToList()" style="margin-bottom:16px;">← 返回列表</button>
+      <h2 id="detailTitle"></h2>
+      <div style="margin: 16px 0; padding: 16px; background: #f8f9fa; border-radius: 8px;">
+        <div style="display: flex; justify-content: space-around; text-align: center;">
+          <div>
+            <div style="font-size: 12px; color: #999;">当前价</div>
+            <div style="font-size: 24px; font-weight: bold; color: #e74c3c;" id="detailCurrentPrice">-</div>
+          </div>
+          <div>
+            <div style="font-size: 12px; color: #999;">历史最低</div>
+            <div style="font-size: 24px; font-weight: bold; color: #27ae60;" id="detailMinPrice">-</div>
+          </div>
+          <div>
+            <div style="font-size: 12px; color: #999;">心理价位</div>
+            <div style="font-size: 24px; font-weight: bold; color: #4A90D9;" id="detailMaxPrice">-</div>
+          </div>
+        </div>
+      </div>
+      <div style="height: 300px;">
+        <canvas id="priceChart"></canvas>
+      </div>
     </div>
 
   </div>
@@ -261,25 +287,87 @@ async function logout() {
   showLogin();
 }
 
+let currentMonitorId = null;
+let priceChart = null;
+
 async function loadMonitors() {
   const list = await api('/api/monitors');
   const el = document.getElementById('monitorList');
   if (!list.length) { el.innerHTML = '<div class="empty">暂无监控任务，上方新建一个吧</div>'; return; }
   el.innerHTML = list.map(m => `
-    <div class="monitor-item">
+    <div class="monitor-item" onclick="showDetail(${m.id})" style="cursor:pointer;">
       <div>
         <div class="monitor-route">${m.departure_city} → ${m.arrival_city}</div>
         <div class="monitor-meta">
           ${m.departure_date}${m.return_date ? ' ~ ' + m.return_date : ' 单程'}
-          ${m.last_checked ? ' · 最近更新 ' + new Date(m.last_checked).toLocaleString() : ''}
+          ${m.last_checked ? ' · 最近更新 ' + formatTime(m.last_checked) : ''}
         </div>
       </div>
       <div style="text-align:center">
         ${m.best_price ? `<div class="monitor-price">¥${m.best_price}<small> 历史最低</small></div>` : '<div style="color:#aaa">采集中...</div>'}
       </div>
-      <button class="btn btn-danger btn-sm" onclick="stopMonitor(${m.id})">停止</button>
+      <button class="btn btn-danger btn-sm" onclick="event.stopPropagation(); stopMonitor(${m.id})">停止</button>
     </div>
   `).join('');
+}
+
+function formatTime(isoStr) {
+  const d = new Date(isoStr);
+  // 转北京时间（UTC+8）
+  d.setHours(d.getHours() + 8);
+  return `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+}
+
+async function showDetail(mid) {
+  currentMonitorId = mid;
+  document.getElementById('monitorListCard').classList.add('hidden');
+  document.getElementById('monitorDetailCard').classList.remove('hidden');
+  await loadDetail(mid);
+}
+
+function backToList() {
+  document.getElementById('monitorDetailCard').classList.add('hidden');
+  document.getElementById('monitorListCard').classList.remove('hidden');
+  if (priceChart) { priceChart.destroy(); priceChart = null; }
+}
+
+async function loadDetail(mid) {
+  const list = await api('/api/monitors');
+  const m = list.find(x => x.id === mid);
+  if (!m) return;
+  document.getElementById('detailTitle').textContent = `${m.departure_city} → ${m.arrival_city} · ${m.departure_date}`;
+  document.getElementById('detailCurrentPrice').textContent = m.best_price ? `¥${m.best_price}` : '-';
+  document.getElementById('detailMinPrice').textContent = m.best_price ? `¥${m.best_price}` : '-';
+  document.getElementById('detailMaxPrice').textContent = m.max_price ? `¥${m.max_price}` : '不限';
+
+  const history = await api(`/api/monitors/${mid}/history`);
+  const labels = history.map(h => formatTime(h.time));
+  const prices = history.map(h => h.price);
+
+  const ctx = document.getElementById('priceChart').getContext('2d');
+  if (priceChart) priceChart.destroy();
+  priceChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: labels,
+      datasets: [{
+        label: '价格',
+        data: prices,
+        borderColor: '#e74c3c',
+        backgroundColor: 'rgba(231,76,60,0.1)',
+        fill: true,
+        tension: 0.3,
+        pointRadius: 4,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: {
+        y: { beginAtZero: false }
+      }
+    }
+  });
 }
 
 async function queryPrice() {

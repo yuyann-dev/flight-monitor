@@ -337,6 +337,7 @@ async def run_single_monitor(mid: int, manual_refresh: bool = False) -> bool:
                 },
                 flights=flights[:5],
                 analysis=analysis,
+                advice=analysis.get("advice", "建议考虑购票"),
             )
             m.last_notified_at = now
             m.last_notified_price = best_price

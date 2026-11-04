@@ -243,5 +243,6 @@ def should_notify(
         "score": score,
         "reason": "；".join(reasons[:4]),
         "days_left": result["days_left"],
+        "advice": result["advice"],
     }
     return should_alert, analysis["reason"], analysis

@@ -47,8 +47,8 @@ def _short_time(time_str: str) -> str:
         return "--"
 
 
-def send_price_alert(email: str, monitor_info: dict, flights: list, analysis: dict):
-    """发送低价提醒邮件。"""
+def send_price_alert(email: str, monitor_info: dict, flights: list, analysis: dict, advice: str = "建议考虑购票"):
+    """发送价格提醒邮件，根据advice类型用不同文案。"""
     rows = ""
     for f in flights[:5]:
         direct_text = "直飞" if f.get("is_direct") else "中转"
@@ -70,16 +70,26 @@ def send_price_alert(email: str, monitor_info: dict, flights: list, analysis: di
         history_low is not None
         and analysis["best_price"] <= history_low
     )
-
     new_low_banner = (
         '<p style="margin:5px 0; color:#27ae60; font-weight:bold;">已创监控以来历史新低</p>'
-        if is_new_low
-        else ""
+        if is_new_low else ""
     )
+
+    # 根据建议类型选文案
+    if advice == "建议尽快购票":
+        title = "价格低位且临近出行，建议尽快购票"
+        title_color = "#c0392b"
+        tip_line = "当前价格处于低位，且距离出发较近，继续等待可能面临涨价风险，建议尽快下单。"
+        subject_prefix = "尽快购票"
+    else:
+        title = "价格处于较低水平，可以考虑入手"
+        title_color = "#e67e22"
+        tip_line = "当前价格在你监控周期内处于较低位置，可以考虑入手，也可以再观察几天。"
+        subject_prefix = "考虑购票"
 
     body = f"""
     <div style="font-family: -apple-system, Arial, sans-serif; max-width: 640px; margin: 0 auto;">
-      <h2 style="color:#e74c3c; margin-bottom:8px;">低价提醒：当前航班值得入手</h2>
+      <h2 style="color:{title_color}; margin-bottom:8px;">{title}</h2>
       <p><b>{monitor_info['departure_city']}</b> → <b>{monitor_info['arrival_city']}</b>
          （{monitor_info.get('departure_date', '')}）</p>
 
@@ -92,6 +102,8 @@ def send_price_alert(email: str, monitor_info: dict, flights: list, analysis: di
         {new_low_banner}
         <p style="margin:8px 0 0 0; color:#666; font-size:13px;">{analysis['reason']}</p>
       </div>
+
+      <p style="color:#555; font-size:14px; margin:10px 0;">{tip_line}</p>
 
       <h3 style="font-size:16px; margin:20px 0 10px;">推荐航班（按价格排序）</h3>
       <table style="width:100%; border-collapse:collapse; margin:10px 0;">
@@ -119,6 +131,6 @@ def send_price_alert(email: str, monitor_info: dict, flights: list, analysis: di
     """
     send_email(
         email,
-        f"{monitor_info['departure_city']}→{monitor_info['arrival_city']} 低价提醒 ¥{analysis['best_price']}",
+        f"{monitor_info['departure_city']}→{monitor_info['arrival_city']} {subject_prefix} ¥{analysis['best_price']}",
         body,
     )

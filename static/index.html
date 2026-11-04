@@ -71,8 +71,12 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
 .flight-no { font-weight: 600; margin-bottom: 4px; }
 .tag-direct { font-size: 11px; background: #e8f5e9; color: #2e7d32; padding: 2px 6px; border-radius: 4px; margin-left: 6px; }
 .tag-transit { font-size: 11px; background: #fff3e0; color: #e65100; padding: 2px 6px; border-radius: 4px; margin-left: 6px; }
+.tag-platform { font-size: 11px; padding: 2px 6px; border-radius: 4px; margin-left: 6px; font-weight: 500; }
+.tag-fliggy { background: #fff0e6; color: #d35400; }
+.tag-variflight { background: #e6f0fb; color: #1565c0; }
 .flight-route { font-size: 13px; color: #666; }
 .flight-bag { font-size: 11px; color: #999; margin-top: 4px; }
+.flight-alt { font-size: 11px; color: #888; margin-top: 3px; }
 .flight-price-box { text-align: right; margin-right: 12px; }
 .flight-price { font-size: 20px; font-weight: bold; color: #e74c3c; }
 .flight-fee { font-size: 11px; color: #999; }
@@ -265,7 +269,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
 
       <!-- 航班列表 -->
       <div>
-        <h3 style="font-size: 16px; margin-bottom: 12px;">最新航班（飞猪，所有日期按价格排序）</h3>
+        <h3 style="font-size: 16px; margin-bottom: 12px;">最新航班（飞猪 / 飞常准比价，同一航班取最低价）</h3>
         <div id="detailFlights"></div>
       </div>
     </div>
@@ -513,19 +517,29 @@ async function loadDetail(mid) {
     if (!flights.length) {
       flightsEl.innerHTML = '<div style="text-align:center; color:#e67e22; padding:20px;">暂未获取到航班数据<br><span style="color:#999; font-size:12px;">日期可能超出可查询范围，系统会持续监控</span></div>';
     } else {
-      flightsEl.innerHTML = flights.map(f => `
+      flightsEl.innerHTML = flights.map(f => {
+        const platformClass = f.platform === '飞常准' ? 'tag-variflight' : 'tag-fliggy';
+        const buyUrl = f.link
+          || (f.platform === '飞常准' ? 'https://www.variflight.com/' : '');
+        const altText = (f.alt_platforms && f.alt_platforms.length)
+          ? `<div class="flight-alt">同航班其他渠道：${
+              f.alt_platforms.map(a => `${a.platform}¥${a.price}`).join('、')
+            }</div>` : '';
+        return `
         <div class="flight-card">
           <div class="flight-top">
             <div style="flex:1;">
               <div class="flight-date">${f.date || ''}</div>
               <div class="flight-no">
                 ${f.airline || '未知航司'} ${f.flight_no || ''}
+                <span class="tag-platform ${platformClass}">${f.platform}</span>
                 ${f.is_direct ? '<span class="tag-direct">直飞</span>' : '<span class="tag-transit">中转</span>'}
               </div>
               <div class="flight-route">
                 ${formatHM(f.dep_time)} ${f.dep_airport || ''} → ${formatHM(f.arr_time)} ${f.arr_airport || ''}
               </div>
               <div class="flight-bag">${f.baggage_text || '行李额度请以购买页为准'}</div>
+              ${altText}
             </div>
             <div class="flight-price-box">
               <div class="flight-price">¥${f.price}</div>
@@ -533,11 +547,12 @@ async function loadDetail(mid) {
             </div>
           </div>
           <div class="flight-actions">
-            ${f.link ? `<a href="${f.link}" target="_blank" class="btn btn-primary btn-sm" style="flex:1; text-align:center;">去购买</a>` : ''}
+            ${buyUrl ? `<a href="${buyUrl}" target="_blank" class="btn btn-primary btn-sm" style="flex:1; text-align:center;">去购买</a>` : ''}
             <button class="btn btn-outline btn-sm" onclick="excludeFlight('${f.flight_no}', '${f.date}')" style="color:#999;">不关注</button>
           </div>
         </div>
-      `).join('');
+      `;
+      }).join('');
     }
   } catch(e) {
     flightsEl.innerHTML = '<div style="text-align:center; color:#e74c3c; padding:20px;">加载失败: ' + e.message + '</div>';

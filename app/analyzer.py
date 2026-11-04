@@ -75,14 +75,19 @@ def _time_stage(days_left: int) -> tuple[float, str]:
     return 30.0, "距离出发较远，通常票价还会继续调整"
 
 
-def _evaluate(monitor: Monitor, samples: list[PriceSample]) -> dict:
+def _evaluate(monitor: Monitor, samples: list[PriceSample],
+              current_price_override: float | None = None) -> dict:
     """核心评估：综合时间阶段、百分位、趋势、心理价位。
 
     generate_advice 与 should_notify 共用，保证前后端判断一致。
+    current_price_override 用于首次爬取：新样本尚未提交、历史样本为空时，
+    由调用方传入当前真实最低价，避免误判为“无数据”。
     """
     now = datetime.utcnow()
     history_prices = [s.best_price for s in samples if s.best_price]
-    current_price = history_prices[-1] if history_prices else None
+    current_price = current_price_override or (
+        history_prices[-1] if history_prices else None
+    )
 
     # 距出发天数
     try:
@@ -196,7 +201,7 @@ def should_notify(
     monitor: Monitor, samples: list[PriceSample], current_price: float
 ) -> tuple[bool, str, dict]:
     """是否发邮件提醒：核心评估 + 冷却期规则。"""
-    result = _evaluate(monitor, samples)
+    result = _evaluate(monitor, samples, current_price_override=current_price)
     now = datetime.utcnow()
 
     # 只有倾向“买”的建议才考虑提醒

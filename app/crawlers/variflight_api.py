@@ -42,18 +42,27 @@ class VariflightMCPClient:
         }
         self._req_id = 0
         self._initialized = False
+        self._session_id: str | None = None
 
     def _next_id(self) -> int:
         self._req_id += 1
         return self._req_id
 
     def _post(self, payload: dict) -> dict:
+        # initialize 之后服务端会下发 Mcp-Session-Id，后续请求必须原样带回
+        headers = dict(self._headers)
+        if self._session_id:
+            headers["Mcp-Session-Id"] = self._session_id
+
         try:
             resp = requests.post(
-                GATEWAY, headers=self._headers, json=payload, timeout=_TIMEOUT
+                GATEWAY, headers=headers, json=payload, timeout=_TIMEOUT
             )
         except requests.RequestException as exc:
             raise VariflightError(f"network error: {exc}") from exc
+
+        # SSE 响应常不带 charset，requests 会回退 latin-1 导致中文乱码，强制 UTF-8
+        resp.encoding = "utf-8"
 
         if resp.status_code == 401:
             raise VariflightError("401 unauthorized: MCP Key 无效或已过期")
@@ -61,6 +70,15 @@ class VariflightMCPClient:
             raise VariflightError(
                 f"HTTP {resp.status_code}: {resp.text[:200]}"
             )
+
+        # 保存服务端分配/更新的会话 ID
+        new_session = resp.headers.get("Mcp-Session-Id")
+        if new_session:
+            self._session_id = new_session
+
+        # 通知类请求（无 id，如 notifications/initialized）服务端返回空响应体
+        if not resp.text.strip():
+            return {}
 
         ctype = resp.headers.get("Content-Type", "")
         if "text/event-stream" in ctype:
@@ -72,15 +90,30 @@ class VariflightMCPClient:
 
     @staticmethod
     def _parse_sse(text: str) -> dict:
-        """解析 SSE 响应，返回最后一个 JSON-RPC 消息。"""
+        """解析 SSE 响应，返回最后一个 JSON-RPC 消息。
+
+        兼容标准 SSE（多个 data: 行）以及该网关把长 JSON 物理折行、
+        延续行不带 data: 前缀的情况：按空行划分事件，data: 行取前缀后内容，
+        事件内其余非 id:/event: 的非空行视为 data 的延续，直接拼接。
+        """
         messages = []
-        for line in text.splitlines():
-            line = line.strip()
-            if line.startswith("data:"):
-                data = line[len("data:"):].strip()
-                if data and data != "[DONE]":
+        for block in text.split("\n\n"):
+            parts = []
+            collecting = False
+            for raw_line in block.splitlines():
+                line = raw_line.strip()
+                if line.startswith("data:"):
+                    collecting = True
+                    parts.append(line[len("data:"):].strip())
+                elif line.startswith(("id:", "event:", "retry:", ":")):
+                    continue
+                elif collecting and line:
+                    parts.append(line)
+            if parts:
+                joined = "".join(parts)
+                if joined and joined != "[DONE]":
                     try:
-                        messages.append(json.loads(data))
+                        messages.append(json.loads(joined))
                     except json.JSONDecodeError:
                         continue
         if not messages:
@@ -122,34 +155,6 @@ class VariflightMCPClient:
             raise VariflightError(f"tool {name} error: {result['error']}")
         return result.get("result", {})
 
-
-def _extract_text(result: dict) -> str:
-    """从 tools/call 结果中拼接文本内容。"""
-    parts = []
-    for block in result.get("content", []):
-        if block.get("type") == "text":
-            parts.append(block.get("text", ""))
-    return "\n".join(parts).strip()
-
-
-def _extract_structured(result: dict):
-    """从 resource / text 块中提取结构化数据（dict/list）。"""
-    for block in result.get("content", []):
-        if block.get("type") == "resource":
-            resource = block.get("resource", {})
-            text = resource.get("text")
-            if text:
-                try:
-                    return json.loads(text)
-                except (json.JSONDecodeError, TypeError):
-                    continue
-        if block.get("type") == "text":
-            text = block.get("text", "")
-            try:
-                return json.loads(text)
-            except (json.JSONDecodeError, TypeError):
-                continue
-    return None
 
 
 class VariflightCrawler:
@@ -221,197 +226,53 @@ class VariflightCrawler:
 
     def _route_flights(self, client: VariflightMCPClient,
                        dep_code: str, arr_code: str, dep_date: str) -> list[dict]:
-        """实时票价：getRouteFlightTickets（DuckDB SQL）。"""
-        sql = (
-            "SELECT o.option_id, o.adult_total, o.transfers, o.legs "
-            "FROM flights("
-            "market := 'domestic', "
-            f"legs := [{{'dep_city':'{dep_code.upper()}',"
-            f"'arr_city':'{arr_code.upper()}','date':'{dep_date}'}}], "
-            "cabin := 'economy') AS o "
-            "WHERE o.adult_total IS NOT NULL "
-            "ORDER BY o.adult_total, o.option_id LIMIT 20"
-        )
-        result = client.call_tool("getRouteFlightTickets", {"sql": sql})
-        data = _extract_structured(result)
-        flights = self._parse_route(data, dep_code, arr_code)
+        """真实票价：getFlightList 补全时间/机场/航司，getRoutePriceData
+        提供真实报价，两者按航班号关联，仅保留有真实报价的航班。"""
+        dep, arr, date = dep_code.upper(), arr_code.upper(), dep_date
 
-        if flights:
-            print(
-                f"[variflight] got {len(flights)} flights, "
-                f"cheapest: ¥{flights[0]['price']}"
-            )
-        else:
-            # 详细接口无结果时，回退到每日最低价日历
-            flights = self._lowest_price(
-                client, dep_code, arr_code, dep_date
-            )
-        return flights
-
-    def _lowest_price(self, client: VariflightMCPClient,
-                      dep_code: str, arr_code: str, dep_date: str) -> list[dict]:
-        """航线最低价日历：getFlightTicketPrice（仅当日最低价）。"""
-        result = client.call_tool("getFlightTicketPrice", {
-            "dep": dep_code.upper(),
-            "arr": arr_code.upper(),
-            "type": "1",
-            "depDateBegin": dep_date,
-            "depDateEnd": dep_date,
+        # 1. 完整航班摘要（计划起降时间、机场、航司中文名、距离等）
+        list_result = client.call_tool("getFlightList", {
+            "date": date, "dep": dep, "arr": arr,
         })
-        data = _extract_structured(result)
-        price = self._find_lowest_price(data, dep_date)
-        if price is None:
-            return []
-        print(f"[variflight] calendar lowest on {dep_date}: ¥{price}")
-        return [{
-            "platform": "飞常准",
-            "price": int(price),
-            "flight_no": "",
-            "airline": "",
-            "airline_category": "",
-            "baggage_text": "",
-            "dep_time": "",
-            "arr_time": "",
-            "dep_airport": "",
-            "arr_airport": "",
-            "is_direct": True,
-            "stops": 0,
-            "link": "",
-        }]
+        flight_items = list_result.get("structuredContent", {}).get("items", [])
+        info_by_fnum = {f["fnum"]: f for f in flight_items if f.get("fnum")}
 
-    @staticmethod
-    def _parse_route(data, dep_code: str, arr_code: str) -> list[dict]:
-        """容错解析 getRouteFlightTickets 的结构化结果。"""
-        if data is None:
-            return []
-        rows = data
-        if isinstance(data, dict):
-            for key in ("rows", "data", "results", "records"):
-                if isinstance(data.get(key), list):
-                    rows = data[key]
-                    break
-            else:
-                rows = [data]
-        if not isinstance(rows, list):
-            return []
+        # 2. 票价列表（核心，仅保留有真实报价的航班）
+        price_result = client.call_tool("getRoutePriceData", {
+            "dep": dep, "arr": arr, "startDate": date, "endDate": date,
+        })
+        tickets = (
+            price_result.get("structuredContent", {})
+            .get("item", {}).get("tickets", [])
+        )
 
         flights = []
-        for row in rows:
-            if not isinstance(row, dict):
-                continue
-            price = row.get("adult_total")
-            if price is None:
-                continue
+        for t in tickets:
+            fnum = t.get("fnum", "")
             try:
-                price = float(price)
+                price = int(float(t.get("price")))
             except (TypeError, ValueError):
                 continue
             if price <= 0:
                 continue
-
-            airline = VariflightCrawler._pick_airline(row)
-            flight_no = VariflightCrawler._pick_flight_no(row)
-            dep_time, arr_time = VariflightCrawler._pick_times(row)
-            transfers = row.get("transfers", 0)
-            try:
-                stops = int(transfers or 0)
-            except (TypeError, ValueError):
-                stops = 0
-
+            info = info_by_fnum.get(fnum, {})
+            airline = info.get("airlineCnName") or t.get("airlineName", "")
             flights.append({
                 "platform": "飞常准",
-                "price": int(price),
-                "flight_no": flight_no,
+                "price": price,
+                "flight_no": fnum,
                 "airline": airline,
                 "airline_category": classify(airline) if airline else "",
                 "baggage_text": baggage_text(airline) if airline else "",
-                "dep_time": dep_time,
-                "arr_time": arr_time,
-                "dep_airport": dep_code.upper(),
-                "arr_airport": arr_code.upper(),
-                "is_direct": stops == 0,
-                "stops": stops,
+                "dep_time": info.get("departurePlanTime", ""),
+                "arr_time": info.get("arrivalPlanTime", ""),
+                "dep_airport": info.get("depAirport", ""),
+                "arr_airport": info.get("arrAirport", ""),
+                # getFlightList 返回的是单个航班，不含中转组合，按直飞处理
+                "is_direct": True,
+                "stops": 0,
+                # 无独立购票链接时前端兜底为飞常准官网
                 "link": "",
             })
-
         flights.sort(key=lambda x: x["price"])
         return flights
-
-    @staticmethod
-    def _pick_airline(row: dict) -> str:
-        for key in ("airline_name", "airline", "marketing_airline", "carrier"):
-            val = row.get(key)
-            if isinstance(val, str) and val:
-                return val
-        legs = row.get("legs")
-        name = VariflightCrawler._dig_legs(legs, "airline_name")
-        return name or ""
-
-    @staticmethod
-    def _pick_flight_no(row: dict) -> str:
-        for key in ("flight_no", "flight_number", "fnum"):
-            val = row.get(key)
-            if isinstance(val, str) and val:
-                return val
-        return VariflightCrawler._dig_legs(row.get("legs"), "flight_number") or ""
-
-    @staticmethod
-    def _pick_times(row: dict) -> tuple[str, str]:
-        dep = row.get("departure") or row.get("dep_time") or ""
-        arr = row.get("arrival") or row.get("arr_time") or ""
-        if not dep:
-            dep = VariflightCrawler._dig_legs(row.get("legs"), "departure") or ""
-        if not arr:
-            arr = VariflightCrawler._dig_legs(row.get("legs"), "arrival") or ""
-        return str(dep), str(arr)
-
-    @staticmethod
-    def _dig_legs(legs, key: str) -> str:
-        """在 legs/segments 嵌套结构里找第一个字符串值。"""
-        if not isinstance(legs, list):
-            return ""
-        for leg in legs:
-            if not isinstance(leg, dict):
-                continue
-            val = leg.get(key)
-            if isinstance(val, str) and val:
-                return val
-            segments = leg.get("segments")
-            if isinstance(segments, list):
-                for seg in segments:
-                    if isinstance(seg, dict):
-                        val = seg.get(key)
-                        if isinstance(val, str) and val:
-                            return val
-        return ""
-
-    @staticmethod
-    def _find_lowest_price(data, dep_date: str):
-        """在最低价日历的多种可能结构中找当日价格。"""
-        if data is None:
-            return None
-        if isinstance(data, list):
-            for item in data:
-                if isinstance(item, dict):
-                    d = item.get("date") or item.get("depDate")
-                    p = item.get("price") or item.get("lowestPrice")
-                    if d == dep_date and p is not None:
-                        return p
-            # 只有一条时直接取
-            if len(data) == 1 and isinstance(data[0], dict):
-                p = data[0].get("price") or data[0].get("lowestPrice")
-                if p is not None:
-                    return p
-        if isinstance(data, dict):
-            for key in ("price", "lowestPrice", "minPrice", "totalPrice"):
-                val = data.get(key)
-                if val is not None:
-                    return val
-            for key in ("data", "list", "items", "calendar"):
-                if key in data:
-                    found = VariflightCrawler._find_lowest_price(
-                        data[key], dep_date
-                    )
-                    if found is not None:
-                        return found
-        return None

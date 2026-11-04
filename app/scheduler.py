@@ -2,7 +2,7 @@
 from datetime import datetime, timedelta
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
-from app.models import SessionLocal, Monitor, PriceSample
+from app.models import SessionLocal, Monitor, PriceSample, User
 from app.crawlers.fliggy_api import FliggyCrawler
 from app.crawlers.variflight_api import VariflightCrawler
 from app.analyzer import should_notify
@@ -81,6 +81,68 @@ def _in_windows(hour, windows) -> bool:
     return False
 
 
+def _merge_multi_source(flights: list[dict]) -> list[dict]:
+    """多源合并去重。
+
+    飞猪与飞常准返回的航班统一按价格排序；若为同一航班（航班号 + 日期相同），
+    只保留报价最低的一条，并在 platform 标注其来源渠道，同时用 alt_platforms
+    记录该航班在其他渠道的报价，保证信息不冲突、不重复。
+    无航班号的条目无法判断是否同一航班，原样保留。
+    """
+    grouped: dict[tuple, dict] = {}
+    standalone = []
+    for f in flights:
+        flight_no = f.get("flight_no", "")
+        date = f.get("date", "")
+        if not flight_no:
+            standalone.append(f)
+            continue
+        key = (flight_no, date)
+        if key not in grouped:
+            entry = dict(f)
+            entry["alt_platforms"] = []
+            grouped[key] = entry
+            continue
+
+        current = grouped[key]
+        # 把当前主条目与新报价比较，便宜的作为主条目，另一个记入备选渠道
+        if f["price"] < current["price"]:
+            cheaper, costlier = f, current
+        else:
+            cheaper, costlier = current, f
+        entry = dict(cheaper)
+        entry["alt_platforms"] = current["alt_platforms"] + [
+            {"platform": costlier["platform"], "price": costlier["price"]}
+        ]
+        grouped[key] = entry
+
+    merged = list(grouped.values()) + standalone
+    merged.sort(key=lambda x: x["price"])
+    return merged
+
+
+def _variflight_allowed_for(db, monitor) -> bool:
+    """飞常准额度归属判断。
+
+    系统主人（owner_email，默认 2719752623@qq.com）名下存在活跃监控任务时，
+    飞常准仅服务于主人自己的任务，其他用户的任务不消耗该额度；
+    只有当主人没有任何活跃任务时，额度才允许用于其他用户。
+    """
+    owner = db.query(User).filter(User.email == settings.owner_email).first()
+    if not owner:
+        # 未配置/找不到主人账号时，不做额外限制
+        return True
+    owner_has_active = (
+        db.query(Monitor)
+        .filter(Monitor.user_id == owner.id, Monitor.is_active == True)
+        .first()
+        is not None
+    )
+    if not owner_has_active:
+        return True
+    return monitor.user_id == owner.id
+
+
 async def run_single_monitor(mid: int):
     """Crawl a single monitor and analyze prices."""
     db = SessionLocal()
@@ -98,15 +160,19 @@ async def run_single_monitor(mid: int):
         date_list = _parse_date_range(m)
         print(f"[scheduler] crawling {len(date_list)} dates: {date_list}")
 
-        # 多数据源逐天爬取并合并：飞猪（flyai CLI）+ 飞常准（MCP，未配置 Key 时自动跳过）
+        # 多数据源逐天爬取：飞猪（flyai CLI，免费高频）+ 飞常准（MCP，受额度与权限控制）
+        crawlers = [FliggyCrawler()]
+        if _variflight_allowed_for(db, m):
+            crawlers.append(
+                VariflightCrawler(
+                    api_key=settings.variflight_mcp_key,
+                    min_interval_hours=settings.variflight_min_interval_hours,
+                )
+            )
+        else:
+            print("[scheduler] 飞常准额度当前仅服务于系统主人，本任务跳过该数据源")
+
         all_flights = []
-        crawlers = [
-            FliggyCrawler(),
-            VariflightCrawler(
-                api_key=settings.variflight_mcp_key,
-                min_interval_hours=settings.variflight_min_interval_hours,
-            ),
-        ]
         for date_str in date_list:
             day_flights = []
             for crawler in crawlers:
@@ -120,7 +186,8 @@ async def run_single_monitor(mid: int):
             all_flights.extend(day_flights)
             print(f"[scheduler] {date_str}: got {len(day_flights)} flights")
 
-        flights = all_flights
+        # 同一航班跨渠道取最低价，全部航班统一按价格排序
+        flights = _merge_multi_source(all_flights)
 
         # 只看直飞
         if m.direct_only:
@@ -176,8 +243,7 @@ async def run_single_monitor(mid: int):
             db.commit()
             return
 
-        # 所有日期航班统一按价格排序
-        flights.sort(key=lambda x: x["price"])
+        # 合并函数已按价格排序，这里取本次真实最低价/平台/日期，保证价格曲线真实
         best_price = flights[0]["price"]
         best_platform = flights[0]["platform"]
         cheapest_date = flights[0]["date"]

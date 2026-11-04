@@ -42,7 +42,8 @@ def ewma_forecast(history: list[float], days_ahead: int = 7, alpha: float = 0.3)
 def industry_rule_score(dep_date: str, checked_at: datetime | None = None) -> dict:
     """基于行业先验规则的评分。返回 (推荐买入度 0-100, 理由列表)。
 
-    参考来源：去哪儿、航空旅游网2026年机票价格报告
+    参考来源：航空旅游网2026年报告、Expedia 2025航空旅行报告、同程旅行大数据
+    核心结论：国内航线黄金窗口为出发前13-21天，窗口内比临期便宜25%-35%
     """
     if checked_at is None:
         checked_at = datetime.utcnow()
@@ -50,7 +51,7 @@ def industry_rule_score(dep_date: str, checked_at: datetime | None = None) -> di
     score = 50.0
     reasons = []
 
-    # 1. 距出发天数（国内航线黄金窗口：提前20-30天）
+    # 1. 距出发天数（核心：黄金窗口13-21天）
     try:
         dep_dt = datetime.strptime(dep_date, "%Y-%m-%d")
         days_left = (dep_dt - checked_at).days
@@ -60,54 +61,54 @@ def industry_rule_score(dep_date: str, checked_at: datetime | None = None) -> di
     if days_left < 0:
         score -= 30
         reasons.append("航班已过日期")
-    elif days_left < 7:
+    elif days_left < 3:
+        score += 30
+        reasons.append(f"距出发仅{days_left}天，价格只会涨不会降，赶紧买")
+    elif 3 <= days_left < 7:
         score += 25
-        reasons.append(f"距出发仅{days_left}天，临期价格通常只会上涨，建议尽快入手")
-    elif days_left < 14:
+        reasons.append(f"距出发{days_left}天，临期价格持续上涨，建议尽快入手")
+    elif 7 <= days_left < 13:
         score += 15
-        reasons.append(f"距出发{days_left}天，低价窗口正在关闭，价格将逐步上涨")
-    elif 20 <= days_left <= 30:
-        score += 20
-        reasons.append(f"距出发{days_left}天，正处于国内机票黄金购票窗口（航司集中放折扣舱）")
-    elif 14 <= days_left < 20:
+        reasons.append(f"距出发{days_left}天，低价舱快卖完了，价格逐步上涨")
+    elif 13 <= days_left <= 21:
+        score += 25
+        reasons.append(f"距出发{days_left}天，正是买票最便宜的黄金时段")
+    elif 21 < days_left <= 30:
         score += 10
-        reasons.append(f"距出发{days_left}天，接近黄金购票窗口")
+        reasons.append(f"距出发{days_left}天，接近黄金窗口，可以开始关注了")
     elif 30 < days_left <= 45:
-        score += 5
-        reasons.append(f"距出发{days_left}天，旺季可考虑锁票")
-    elif days_left > 90:
-        score -= 15
-        reasons.append(f"距出发{days_left}天过早，价格尚未稳定，可再观望")
-    elif 45 < days_left <= 90:
         score -= 5
-        reasons.append(f"距出发{days_left}天偏早，价格可能还有下降空间")
+        reasons.append(f"距出发{days_left}天还偏早，价格可能还会降")
+    elif days_left > 60:
+        score -= 15
+        reasons.append(f"距出发{days_left}天太早了，现在买反而贵15%-20%，再等等")
 
     # 2. 周几出发（周二周三最便宜，周五周日最贵）
     try:
         weekday = dep_dt.weekday()  # 0=周一, 1=周二, ..., 6=周日
         if weekday in [1, 2]:  # 周二、周三
-            score += 10
-            reasons.append("周二/周三出发为周中价格洼地，比周末便宜15-30%")
+            score += 8
+            reasons.append("周二/周三出发，比周末便宜15%-30%")
         elif weekday == 0:  # 周一
-            score -= 5
-            reasons.append("周一出发商务客流多，价格偏高")
+            score -= 3
+            reasons.append("周一出发商务多，价格略高")
         elif weekday in [4, 5]:  # 周五、周六
             score -= 10
-            reasons.append("周五/周六出发为商旅+旅游高峰，溢价较高")
+            reasons.append("周五/周六出发，商旅+旅游高峰，贵20%-40%")
         elif weekday == 6:  # 周日
             score -= 8
             reasons.append("周日返程高峰，价格偏高")
     except Exception:
         pass
 
-    # 3. 一天中的捡漏时段（参考：13-15点退票回流，22:30后系统清仓）
+    # 3. 一天中的捡漏时段
     hour = checked_at.hour
     if 13 <= hour < 15:
-        score += 5
-        reasons.append("当前是下午退票回流高峰，可能捡漏低价")
-    elif hour >= 22 or hour < 3:
-        score += 5
-        reasons.append("当前是深夜系统清仓时段，可能有尾单低价")
+        score += 3
+        reasons.append("下午1-3点是退票回流高峰，容易捡到便宜")
+    elif hour >= 22 or hour < 2:
+        score += 3
+        reasons.append("深夜系统清仓，可能有尾单低价")
 
     score = max(0, min(100, score))
     return {"score": score, "reasons": reasons, "days_left": days_left}

@@ -465,31 +465,44 @@ async function loadDetail(mid) {
   const labels = history.map(h => formatTime(h.time));
   const prices = history.map(h => h.price);
 
-  // 计算购买建议
+  // 计算购买建议（大白话，无技术术语）
   const currentPrice = prices[prices.length - 1];
   const minPrice = Math.min(...prices);
-  const maxPrice = Math.max(...prices);
-  const pct = prices.filter(p => p <= currentPrice).length / prices.length * 100;
 
-  // 距出发天数
-  const depDate = new Date(m.departure_date);
+  // 距出发天数（用日期范围的结束日期算）
+  const depDate = new Date(m.departure_date_end || m.departure_date_start);
   const today = new Date();
   const daysLeft = Math.ceil((depDate - today) / (1000 * 60 * 60 * 24));
 
   let advice, adviceReason;
+
+  // 规则1：临期（7天以内）→ 赶紧买
   if (daysLeft < 7) {
     advice = '建议尽快购买';
-    adviceReason = `距出发仅${daysLeft}天，临期价格通常只会上涨，越晚越贵。`;
-  } else if (pct <= 20 && daysLeft >= 14) {
-    advice = '强烈建议入手';
-    adviceReason = `当前价格已经比历史上80%的时段都便宜，而且距离出发还有${daysLeft}天，正是买机票的好时候。`;
-  } else if (pct <= 40) {
+    adviceReason = `离出发只剩${daysLeft}天了，这个时候机票只会涨价不会降价，越晚买越贵。`;
+  }
+  // 规则2：黄金窗口（13-21天）+ 价格比历史最低高不了多少 → 可以买了
+  else if (daysLeft >= 13 && daysLeft <= 21 && currentPrice <= minPrice * 1.15) {
     advice = '可以考虑入手';
-    adviceReason = `当前价格已经比历史上60%的时段便宜，价格偏低。`;
-  } else if (daysLeft > 45) {
-    advice = '建议继续等待';
-    adviceReason = `距出发还有${daysLeft}天，现在买太早了，价格大概率还会下降。`;
-  } else {
+    adviceReason = `现在离出发还有${daysLeft}天，正是买机票最便宜的黄金时段。当前价格也挺低的，看到合适的可以下手了。`;
+  }
+  // 规则3：太早了（45天以上）→ 再等等
+  else if (daysLeft > 45) {
+    advice = '建议再等等';
+    adviceReason = `离出发还有${daysLeft}天，现在买太早了。一般提前半个月到三周的时候最便宜，现在买反而容易买贵。`;
+  }
+  // 规则4：价格已经是历史最低了 → 赶紧买
+  else if (currentPrice <= minPrice * 1.05) {
+    advice = '价格很合适，可以入手';
+    adviceReason = `现在的价格已经是咱们监控以来的最低价了，挺划算的。`;
+  }
+  // 规则5：黄金窗口但价格还高 → 再等等
+  else if (daysLeft >= 13 && daysLeft <= 21 && currentPrice > minPrice * 1.2) {
+    advice = '可以再等等看';
+    adviceReason = `现在虽然是黄金购票期，但价格还不算便宜，再观察几天，可能还会降。`;
+  }
+  // 兜底
+  else {
     advice = '建议继续观望';
     adviceReason = `当前价格不便宜也不贵，可以再等等看会不会降价。`;
   }

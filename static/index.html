@@ -433,9 +433,12 @@ async function refreshDetail() {
   btn.disabled = true;
   btn.textContent = '正在抓取...';
   try {
-    await api(`/api/monitors/${currentMonitorId}/refresh`, {method: 'POST'});
+    const res = await api(`/api/monitors/${currentMonitorId}/refresh`, {method: 'POST'});
     await loadDetail(currentMonitorId);
-    toast('刷新完成，已获取最新价格');
+    let msg = '刷新完成';
+    if (res.variflight_left !== undefined) msg += `，飞常准今日剩${res.variflight_left}次`;
+    if (res.refresh_left !== undefined) msg += `，今日刷新剩${res.refresh_left}次`;
+    toast(msg);
   } catch(e) {
     toast('刷新失败: ' + e.message);
   } finally {

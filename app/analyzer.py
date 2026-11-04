@@ -140,10 +140,26 @@ def should_notify(monitor: Monitor, samples: list[PriceSample], current_price: f
         score += 20
         reasons.append(f"当前价格处于历史{pct}%分位，偏低")
 
-    # 2. 预测不会更低
-    if forecast and current_price <= forecast * 0.95:
-        score += 25
-        reasons.append(f"预测未来7天均价¥{int(forecast)}，当前已低于预测值5%以上")
+    # 2. 预测不会更低（结合行业规则修正）
+    days_left = rule["days_left"]
+    is_low_season_window = 20 <= days_left <= 30  # 黄金窗口
+    is_near_departure = days_left < 14  # 临期
+
+    if forecast:
+        # 如果在黄金窗口或临期，即使 EWMA 预测还会降，也认为价格到底了
+        if is_low_season_window or is_near_departure:
+            # 黄金窗口后价格只会涨，不会再降
+            score += 25
+            reasons.append(f"已到黄金购票窗口（距出发{days_left}天），后续价格大概率上涨")
+        elif current_price <= forecast * 0.95:
+            score += 25
+            reasons.append(f"预测未来7天均价¥{int(forecast)}，当前已低于预测值5%以上")
+        # else: forecast > current_price，预测还会降，不加分
+    else:
+        # 数据不足，用行业规则判断
+        if is_low_season_window:
+            score += 15
+            reasons.append(f"已到黄金购票窗口（距出发{days_left}天），建议关注")
 
     # 3. 行业规则加分
     score += rule["score"] * 0.3

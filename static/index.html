@@ -332,7 +332,7 @@ async function loadMonitors() {
         </div>
       </div>
       <div style="text-align:center">
-        ${m.latest_price ? `<div style="font-size:20px; font-weight:bold; color:#e74c3c;">¥${m.latest_price}</div><small style="color:#999;">历史最低 ¥${m.best_price}</small>` : '<div style="color:#aaa">采集中...</div>'}
+        ${m.latest_price ? `<div style="font-size:12px; color:#999;">当前最低</div><div style="font-size:20px; font-weight:bold; color:#e74c3c;">¥${m.latest_price}</div><small style="color:#999;">历史最低 ¥${m.best_price}</small>` : '<div style="color:#aaa">采集中...</div>'}
       </div>
       <button class="btn btn-danger btn-sm" onclick="event.stopPropagation(); stopMonitor(${m.id})">停止</button>
     </div>

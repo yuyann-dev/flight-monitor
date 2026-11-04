@@ -147,6 +147,7 @@ async def list_monitors(user: User = Depends(get_current_user)):
                 "last_checked": m.last_checked_at.isoformat() + "Z" if m.last_checked_at else None,
                 "is_active": m.is_active,
                 "max_price": m.max_price,
+                "cabin_class": m.cabin_class,
             }
             for m in monitors
         ]

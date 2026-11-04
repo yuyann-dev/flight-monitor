@@ -368,7 +368,8 @@ async function loadDetail(mid) {
   const m = list.find(x => x.id === mid);
   if (!m) return;
   document.getElementById('detailTitle').textContent = `${m.departure_city} → ${m.arrival_city}`;
-  document.getElementById('detailSubtitle').textContent = `${m.departure_date}${m.return_date ? ' ~ ' + m.return_date : ' 单程'} · ${m.cabin_class === 'economy' ? '经济舱' : m.cabin_class}`;
+  const cabinText = m.cabin_class === 'economy' ? '经济舱' : (m.cabin_class || '经济舱');
+  document.getElementById('detailSubtitle').textContent = `${m.departure_date}${m.return_date ? ' ~ ' + m.return_date : ' 单程'} · ${cabinText}`;
   document.getElementById('detailCurrentPrice').textContent = m.best_price ? `¥${m.best_price}` : '采集中...';
   document.getElementById('detailMinPrice').textContent = m.best_price ? `¥${m.best_price}` : '-';
   document.getElementById('detailMaxPrice').textContent = m.max_price ? `¥${m.max_price}` : '不限';

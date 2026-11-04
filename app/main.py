@@ -132,6 +132,11 @@ async def list_monitors(user: User = Depends(get_current_user)):
                 .order_by(PriceSample.checked_at.desc())
                 .first()
             )
+            # stale判断：最近一次采集失败了就不显示最新价格
+            is_stale = bool(
+                m.last_checked_at and m.last_success_at
+                and m.last_checked_at > m.last_success_at
+            )
             result.append(
                 {
                     "id": m.id,
@@ -140,7 +145,7 @@ async def list_monitors(user: User = Depends(get_current_user)):
                     "departure_date_start": m.departure_date_start,
                     "departure_date_end": m.departure_date_end,
                     "best_price": m.best_price_ever,
-                    "latest_price": latest.best_price if latest else None,
+                    "latest_price": None if is_stale else (latest.best_price if latest else None),
                     "last_checked": (
                         m.last_checked_at.isoformat() + "Z"
                         if m.last_checked_at

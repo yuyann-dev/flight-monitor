@@ -100,16 +100,8 @@ async def run_single_monitor(mid: int):
         best_platform = next(f["platform"] for f in flights if f["price"] == best_price)
         cheapest_date = next(f["date"] for f in flights if f["price"] == best_price)
 
-        # 按日期分组，每天取前5个最便宜的，保证每天的航班都能显示
-        from collections import defaultdict
-        by_date = defaultdict(list)
-        for f in flights:
-            by_date[f.get("date", "")].append(f)
-        top_flights = []
-        for date, day_flights in by_date.items():
-            day_flights.sort(key=lambda x: x["price"])
-            top_flights.extend(day_flights[:5])  # 每天取前5个
-        top_flights.sort(key=lambda x: x["price"])
+        # 所有航班放在一起，按价格从低到高排序
+        flights.sort(key=lambda x: x["price"])
 
         # 保存样本
         sample = PriceSample(
@@ -117,7 +109,7 @@ async def run_single_monitor(mid: int):
             departure_date=cheapest_date,
             best_price=best_price,
             best_platform=best_platform,
-            flight_detail=top_flights[:20],  # 存最多20个，覆盖每天
+            flight_detail=flights[:50],  # 存最多50个航班，覆盖所有日期
         )
         db.add(sample)
 

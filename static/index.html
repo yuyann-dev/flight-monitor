@@ -334,7 +334,8 @@ async function loadMonitors() {
       <div>
         <div class="monitor-route">${m.departure_city} → ${m.arrival_city}</div>
         <div class="monitor-meta">
-          ${m.departure_date}${m.return_date ? ' ~ ' + m.return_date : ' 单程'}
+          ${m.departure_date_start}${m.departure_date_end !== m.departure_date_start ? ' ~ ' + m.departure_date_end : ''}
+          ${m.return_date_start ? ' · 往返' : ' 单程'}
           ${m.last_checked ? ' · 最近更新 ' + formatTime(m.last_checked) : ''}
         </div>
       </div>
@@ -426,7 +427,12 @@ async function loadDetail(mid) {
   if (!m) return;
   document.getElementById('detailTitle').textContent = `${m.departure_city} → ${m.arrival_city}`;
   const cabinText = m.cabin_class === 'economy' ? '经济舱' : (m.cabin_class || '经济舱');
-  document.getElementById('detailSubtitle').textContent = `${m.departure_date}${m.return_date ? ' ~ ' + m.return_date : ' 单程'} · ${cabinText}`;
+  let dateText = m.departure_date_start;
+  if (m.departure_date_end && m.departure_date_end !== m.departure_date_start) {
+    dateText += ` ~ ${m.departure_date_end}`;
+  }
+  dateText += m.return_date_start ? ' · 往返' : ' · 单程';
+  document.getElementById('detailSubtitle').textContent = `${dateText} · ${cabinText}`;
   // 当前价格从最新一条 history 取，不是 best_price_ever（那是历史最低）
   const history = await api(`/api/monitors/${mid}/history`);
   const latestPrice = history.length ? history[history.length - 1].price : null;

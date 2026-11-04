@@ -146,14 +146,16 @@ async def list_monitors(user: User = Depends(get_current_user)):
                 "id": m.id,
                 "departure_city": m.departure_city,
                 "arrival_city": m.arrival_city,
-                "departure_date": m.departure_date_start,
-                "return_date": m.return_date_start,
+                "departure_date_start": m.departure_date_start,
+                "departure_date_end": m.departure_date_end,
+                "return_date_start": m.return_date_start,
                 "best_price": m.best_price_ever,
                 "latest_price": latest.best_price if latest else None,
                 "last_checked": m.last_checked_at.isoformat() + "Z" if m.last_checked_at else None,
                 "is_active": m.is_active,
                 "max_price": m.max_price,
                 "cabin_class": m.cabin_class,
+                "baggage_required": m.baggage_required,
             })
         return result
     finally:

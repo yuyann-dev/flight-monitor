@@ -162,7 +162,7 @@ def _variflight_allowed_for(db, monitor) -> bool:
     return monitor.user_id == owner.id
 
 
-async def run_single_monitor(mid: int):
+async def run_single_monitor(mid: int, manual_refresh: bool = False):
     """Crawl a single monitor and analyze prices."""
     db = SessionLocal()
     try:
@@ -179,40 +179,30 @@ async def run_single_monitor(mid: int):
         date_list = _parse_date_range(m)
         print(f"[scheduler] crawling {len(date_list)} dates: {date_list}")
 
-        # 数据源策略：优先飞猪（免费高频），飞猪挂了才降级飞常准（省每月100次额度）
+        # 数据源策略：自动轮次只用飞猪，飞常准额度留给手动刷新
         fliggy = FliggyCrawler()
-        use_variflight = _variflight_allowed_for(db, m)
         variflight = None
-        if use_variflight:
+        if manual_refresh and _variflight_allowed_for(db, m):
             variflight = VariflightCrawler(
                 api_key=settings.variflight_mcp_key,
-                min_interval_hours=settings.variflight_min_interval_hours,
+                min_interval_hours=0,  # 手动刷新不节流，由每日次数限制控制
             )
-        else:
-            print("[scheduler] 飞常准额度当前仅服务于系统主人，本任务跳过该数据源")
 
         all_flights = []
         fliggy_hit_limit = False
-        variflight_allowed_this_round = True  # 本轮是否允许飞常准调用
-        if variflight:
-            variflight_allowed_this_round = variflight._throttle_allows()
-            if not variflight_allowed_this_round:
-                print("[scheduler] 飞常准处于节流间隔，本轮跳过")
         for date_str in date_list:
             day_flights = []
-            # 第一步：试飞猪
+            # 飞猪
             try:
                 found = fliggy.search(dep_code, arr_code, date_str)
                 day_flights.extend(found)
-                if found:
-                    fliggy_ok = True
             except Exception as e:
                 print(f"[scheduler] {date_str} 飞猪 error: {e}")
                 if "429" in str(e) or "Trial limit" in str(e):
                     fliggy_hit_limit = True
 
-            # 第二步：飞猪没拿到数据才用飞常准（同一轮内不重复节流）
-            if not day_flights and variflight and variflight_allowed_this_round:
+            # 手动刷新且飞猪没数据时才用飞常准
+            if not day_flights and variflight:
                 try:
                     found = variflight.search(dep_code, arr_code, date_str)
                     day_flights.extend(found)

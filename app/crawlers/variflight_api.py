@@ -9,6 +9,8 @@
 """
 import json
 import os
+import time
+from pathlib import Path
 
 import requests
 
@@ -17,6 +19,9 @@ from app.airlines import classify, baggage_text
 GATEWAY = "https://c-gw.variflight.com/chat_message/mcp/api"
 PROTOCOL_VERSION = "2025-03-26"
 _TIMEOUT = 20
+_THROTTLE_FILE = Path(__file__).resolve().parent.parent.parent / (
+    "data" + os.sep + ".variflight_last_call"
+)
 
 
 class VariflightError(Exception):
@@ -152,11 +157,41 @@ class VariflightCrawler:
 
     name = "variflight"
 
-    def __init__(self, api_key: str | None = None):
+    def __init__(self, api_key: str | None = None,
+                 min_interval_hours: float = 0.0):
         self._api_key = api_key if api_key is not None else os.getenv(
             "VARIFLIGHT_MCP_KEY", ""
         )
+        self._min_interval = (
+            float(min_interval_hours) * 3600.0
+            if min_interval_hours else 0.0
+        )
         self._warned = False
+        self._throttled_warned = False
+
+    def _throttle_allows(self) -> bool:
+        """基于文件时间戳判断是否到达允许调用的间隔。"""
+        if self._min_interval <= 0:
+            return True
+        try:
+            if _THROTTLE_FILE.exists():
+                last = float(_THROTTLE_FILE.read_text().strip())
+                if time.time() - last < self._min_interval:
+                    return False
+        except (ValueError, OSError):
+            # 状态文件损坏时不阻塞，按允许处理
+            return True
+        return True
+
+    def _record_call(self) -> None:
+        """记录本次调用时间戳。"""
+        if self._min_interval <= 0:
+            return
+        try:
+            _THROTTLE_FILE.parent.mkdir(parents=True, exist_ok=True)
+            _THROTTLE_FILE.write_text(str(time.time()))
+        except OSError:
+            pass
 
     def search(self, dep_code: str, arr_code: str, dep_date: str,
                ret_date: str | None = None) -> list[dict]:
@@ -166,9 +201,17 @@ class VariflightCrawler:
                 self._warned = True
             return []
 
+        if not self._throttle_allows():
+            if not self._throttled_warned:
+                print("[variflight] 处于节流间隔内，本轮跳过以节省额度")
+                self._throttled_warned = True
+            return []
+
         client = VariflightMCPClient(self._api_key)
         try:
-            return self._route_flights(client, dep_code, arr_code, dep_date)
+            result = self._route_flights(client, dep_code, arr_code, dep_date)
+            self._record_call()
+            return result
         except VariflightError as exc:
             print(f"[variflight] {dep_date} 调用失败: {exc}")
             return []

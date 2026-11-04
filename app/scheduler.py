@@ -102,7 +102,10 @@ async def run_single_monitor(mid: int):
         all_flights = []
         crawlers = [
             FliggyCrawler(),
-            VariflightCrawler(api_key=settings.variflight_mcp_key),
+            VariflightCrawler(
+                api_key=settings.variflight_mcp_key,
+                min_interval_hours=settings.variflight_min_interval_hours,
+            ),
         ]
         for date_str in date_list:
             day_flights = []

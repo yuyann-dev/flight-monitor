@@ -29,6 +29,8 @@ class Settings(BaseSettings):
 
     # 多数据源：飞常准 MCP（留空则仅使用飞猪）
     variflight_mcp_key: str = ""
+    # 飞常准最小调用间隔（小时）：0=不节流；>0 时用于节省免费/付费额度
+    variflight_min_interval_hours: float = 8.0
 
     # 费用（含税计算）
     airport_construction_fee: int = 50       # 机建费

@@ -1,10 +1,9 @@
 """APScheduler job: periodically crawl all active monitors."""
-import asyncio
 from datetime import datetime
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 from app.models import SessionLocal, Monitor, PriceSample
-from app.crawlers.fliggy_api import search_fliggy, CITY_CODES
+from app.crawlers.fliggy_api import FliggyCrawler
 from app.crawlers.ctrip import CtripCrawler
 from app.analyzer import should_notify
 from app.email_service import send_price_alert
@@ -12,6 +11,20 @@ from app.config import settings
 
 
 scheduler = AsyncIOScheduler(timezone="Asia/Shanghai")
+
+# 城市名 → 三字码映射表
+CITY_NAME_TO_CODE = {
+    "北京": "BJS", "上海": "SHA", "广州": "CAN", "深圳": "SZX",
+    "成都": "CTU", "重庆": "CKG", "杭州": "HGH", "南京": "NKG",
+    "武汉": "WUH", "西安": "XIY", "长沙": "CSX", "厦门": "XMN",
+    "昆明": "KMG", "三亚": "SYX", "海口": "HAK", "青岛": "TAO",
+    "大连": "DLC", "天津": "TSN", "郑州": "CGO", "济南": "TNA",
+    "福州": "FOC", "合肥": "HFE", "南昌": "KHN", "贵阳": "KWE",
+    "南宁": "NNG", "兰州": "LHW", "乌鲁木齐": "URC", "哈尔滨": "HRB",
+    "沈阳": "SHE", "长春": "CGQ", "呼和浩特": "HET", "石家庄": "SJZ",
+    "太原": "TYN", "银川": "INC", "西宁": "XNN", "拉萨": "LXA",
+    "宁波": "NGB", "温州": "WNZ", "桂林": "KWL", "丽江": "LJG",
+}
 
 
 async def run_monitor_job():
@@ -21,38 +34,39 @@ async def run_monitor_job():
         monitors = db.query(Monitor).filter(Monitor.is_active == True).all()
         print(f"[scheduler] {datetime.now()} checking {len(monitors)} monitors")
 
+        fliggy_crawler = FliggyCrawler()
         ctrip_crawler = CtripCrawler()
-        
+
         for m in monitors:
             try:
                 # 城市名转三字码
-                dep_code = CITY_CODES.get(m.departure_city, m.departure_city[:3].upper())
-                arr_code = CITY_CODES.get(m.arrival_city, m.arrival_city[:3].upper())
-                
-                # 多平台比价：携程 + 飞猪
+                dep_code = CITY_NAME_TO_CODE.get(m.departure_city, m.departure_city[:3].upper())
+                arr_code = CITY_NAME_TO_CODE.get(m.arrival_city, m.arrival_city[:3].upper())
+
+                # 多平台比价：飞猪（主） + 携程（备）
                 all_flights = []
-                
-                # 携程
+
+                # 飞猪（主源，flyai CLI）
+                try:
+                    fliggy_flights = fliggy_crawler.search(dep_code, arr_code, m.departure_date_start)
+                    all_flights.extend(fliggy_flights)
+                except Exception as e:
+                    print(f"[scheduler] fliggy error: {e}")
+
+                # 携程（备用，反爬严，可能拿不到数据）
                 try:
                     ctrip_flights = ctrip_crawler.search(dep_code, arr_code, m.departure_date_start)
                     all_flights.extend(ctrip_flights)
                 except Exception as e:
                     print(f"[scheduler] ctrip error: {e}")
-                
-                # 飞猪
-                try:
-                    fliggy_flights = await search_fliggy(dep_code, arr_code, m.departure_date_start)
-                    all_flights.extend(fliggy_flights)
-                except Exception as e:
-                    print(f"[scheduler] fliggy error: {e}")
-                
+
                 flights = all_flights
                 if not flights:
                     print(f"[scheduler] no flights for monitor {m.id}")
                     continue
-                
+
                 best_price = min(f["price"] for f in flights)
-                best_platform = flights[0]["platform"]
+                best_platform = next(f["platform"] for f in flights if f["price"] == best_price)
 
                 # 保存样本
                 sample = PriceSample(
@@ -96,55 +110,12 @@ async def run_monitor_job():
         db.close()
 
 
-async def check_cookie_health():
-    """Check if ctrip cookie is still valid, alert if about to expire."""
-    from pathlib import Path
-    import httpx
-    
-    cookie_file = Path("/opt/flight-monitor/ctrip_cookie.txt")
-    if not cookie_file.exists():
-        return
-    
-    cookie = cookie_file.read_text().strip()
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0.0.0",
-        "Cookie": cookie,
-        "Referer": "https://flights.ctrip.com/",
-    }
-    
-    try:
-        r = httpx.get("https://flights.ctrip.com/", headers=headers, timeout=10)
-        if r.status_code == 200 and "whaleguard" not in r.text.lower():
-            print("[cookie] ctrip cookie is valid")
-        else:
-            print("[cookie] ctrip cookie might be expired!")
-            # 发邮件提醒
-            from app.email_service import send_email
-            admin_email = getattr(settings, 'admin_email', '')
-            if admin_email:
-                send_email(
-                    admin_email,
-                    "【机票监控】携程Cookie可能已过期，请重新登录",
-                    "<p>携程登录Cookie可能已失效，请重新在浏览器登录携程后更新cookie文件。</p>"
-                )
-    except Exception as e:
-        print(f"[cookie] check error: {e}")
-
-
 def start_scheduler():
     scheduler.add_job(
         run_monitor_job,
         trigger=IntervalTrigger(minutes=settings.crawl_interval_minutes),
         next_run_time=datetime.now(),
         id="monitor_job",
-        replace_existing=True,
-    )
-    # 每天检查一次 cookie 健康
-    scheduler.add_job(
-        check_cookie_health,
-        trigger="cron",
-        hour=10,
-        id="cookie_health_job",
         replace_existing=True,
     )
     scheduler.start()

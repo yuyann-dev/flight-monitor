@@ -445,6 +445,24 @@ async function refreshDetail() {
 }
 
 async function loadDetail(mid) {
+  // 飞猪限流状态提示
+  try {
+    const st = await api('/api/system/status');
+    let banner = document.getElementById('fliggyBanner');
+    if (st.fliggy_limited) {
+      if (!banner) {
+        banner = document.createElement('div');
+        banner.id = 'fliggyBanner';
+        banner.style.cssText = 'background:#fff3cd;color:#856404;padding:10px 16px;margin:8px 16px;border-radius:8px;font-size:13px;';
+        document.getElementById('detailView').insertBefore(banner, document.getElementById('detailView').firstChild);
+      }
+      banner.innerHTML = '飞猪免费查询次数今日已用完，正在用飞常准数据更新，价格可能延迟。额度明天自动恢复。';
+      banner.style.display = '';
+    } else if (banner) {
+      banner.style.display = 'none';
+    }
+  } catch(e) {}
+
   const list = await api('/api/monitors');
   const m = list.find(x => x.id === mid);
   if (!m) return;

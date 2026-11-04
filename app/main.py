@@ -104,6 +104,17 @@ async def me(user: User = Depends(get_current_user)):
 
 
 # ── 监控 CRUD ──
+@app.get("/api/system/status")
+async def system_status(user: User = Depends(get_current_user)):
+    """数据源状态：飞猪是否被限流。"""
+    from pathlib import Path
+    p = settings.database_url.replace("sqlite:///", "")
+    flag = Path(p.rsplit("/", 1)[0]) / ".fliggy_rate_limited"
+    if flag.exists():
+        return {"fliggy_limited": True, "since": flag.read_text()}
+    return {"fliggy_limited": False}
+
+
 @app.get("/api/monitors")
 async def list_monitors(user: User = Depends(get_current_user)):
     db = SessionLocal()

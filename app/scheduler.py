@@ -13,6 +13,25 @@ from app.config import settings
 
 scheduler = AsyncIOScheduler(timezone="Asia/Shanghai")
 
+_round_counter = 0  # 全局轮次计数，用于分级调度
+
+
+def _set_fliggy_status(limited: bool):
+    """记录飞猪限流状态，供前端提示。"""
+    p = settings.database_url.replace("sqlite:///", "")
+    flag_path = p.rsplit("/", 1)[0] + "/.fliggy_rate_limited"
+    try:
+        from pathlib import Path
+        f = Path(flag_path)
+        if limited:
+            if not f.exists():
+                f.write_text(datetime.utcnow().isoformat())
+        else:
+            if f.exists():
+                f.unlink()
+    except Exception:
+        pass
+
 # 城市名 → 三字码映射表
 CITY_NAME_TO_CODE = {
     "北京": "BJS", "上海": "SHA", "广州": "CAN", "深圳": "SZX",
@@ -173,6 +192,7 @@ async def run_single_monitor(mid: int):
             print("[scheduler] 飞常准额度当前仅服务于系统主人，本任务跳过该数据源")
 
         all_flights = []
+        fliggy_hit_limit = False
         for date_str in date_list:
             day_flights = []
             for crawler in crawlers:
@@ -180,11 +200,15 @@ async def run_single_monitor(mid: int):
                     found = crawler.search(dep_code, arr_code, date_str)
                     day_flights.extend(found)
                 except Exception as e:
+                    msg = str(e)
                     print(f"[scheduler] {date_str} {crawler.name} error: {e}")
+                    if "429" in msg or "Trial limit" in msg:
+                        fliggy_hit_limit = True
             for f in day_flights:
                 f["date"] = date_str
             all_flights.extend(day_flights)
             print(f"[scheduler] {date_str}: got {len(day_flights)} flights")
+        _set_fliggy_status(fliggy_hit_limit)
 
         # 同一航班跨渠道取最低价，全部航班统一按价格排序
         flights = _merge_multi_source(all_flights)
@@ -312,12 +336,18 @@ async def run_single_monitor(mid: int):
 
 
 async def run_monitor_job():
-    """Crawl all active monitors."""
+    """Crawl all active monitors. Owner monitors every round; others every 3rd round."""
+    global _round_counter
+    _round_counter += 1
     db = SessionLocal()
     try:
+        owner = db.query(User).filter(User.email == settings.owner_email).first()
         monitors = db.query(Monitor).filter(Monitor.is_active == True).all()
-        print(f"[scheduler] {datetime.now()} checking {len(monitors)} monitors")
+        print(f"[scheduler] round {_round_counter}: checking {len(monitors)} monitors")
         for m in monitors:
+            # 分级：主人的任务每轮都跑，其他人的任务每3轮跑一次
+            if owner and m.user_id != owner.id and _round_counter % 3 != 0:
+                continue
             await run_single_monitor(m.id)
     finally:
         db.close()

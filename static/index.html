@@ -629,10 +629,20 @@ function renderConditions(m, editing) {
      <div style="margin-bottom:10px;">
        <div style="font-size:12px;color:#666;margin-bottom:4px;">出发时段</div>
        <div id="editDepWin">${mkChips('editDepWin', m.departure_time_windows||[])}</div>
+       <div style="margin-top:6px;">
+         <input type="number" id="editDepS" min="0" max="23" placeholder="时" style="width:55px;padding:4px;border:1px solid #ddd;border-radius:6px;font-size:13px;">-
+         <input type="number" id="editDepE" min="1" max="24" placeholder="时" style="width:55px;padding:4px;border:1px solid #ddd;border-radius:6px;font-size:13px;">
+         <button type="button" onclick="addEditTw('editDepWin','editDepS','editDepE')" style="padding:4px 10px;background:#eef4fb;color:#4A90D9;border:none;border-radius:14px;font-size:13px;cursor:pointer;">+添加</button>
+       </div>
      </div>
      <div style="margin-bottom:12px;">
        <div style="font-size:12px;color:#666;margin-bottom:4px;">到达时段</div>
        <div id="editArrWin">${mkChips('editArrWin', m.arrival_time_windows||[])}</div>
+       <div style="margin-top:6px;">
+         <input type="number" id="editArrS" min="0" max="23" placeholder="时" style="width:55px;padding:4px;border:1px solid #ddd;border-radius:6px;font-size:13px;">-
+         <input type="number" id="editArrE" min="1" max="24" placeholder="时" style="width:55px;padding:4px;border:1px solid #ddd;border-radius:6px;font-size:13px;">
+         <button type="button" onclick="addEditTw('editArrWin','editArrS','editArrE')" style="padding:4px 10px;background:#eef4fb;color:#4A90D9;border:none;border-radius:14px;font-size:13px;cursor:pointer;">+添加</button>
+       </div>
      </div>
      <div style="display:flex;gap:8px;">
        <button type="button" onclick="saveConditions()" style="flex:1;padding:8px;background:#4A90D9;color:#fff;border:none;border-radius:6px;font-size:14px;cursor:pointer;">保存</button>
@@ -642,6 +652,21 @@ function renderConditions(m, editing) {
 
 async function startEditConditions() {
   if (currentMonitor) renderConditions(currentMonitor, true);
+}
+
+function addEditTw(boxId, startId, endId) {
+  const s = parseInt(document.getElementById(startId).value);
+  const e = parseInt(document.getElementById(endId).value);
+  if (isNaN(s) || isNaN(e) || s < 0 || e > 24 || s >= e) return toast('请输入有效时段，如 7-10');
+  const box = document.getElementById(boxId);
+  const chip = document.createElement('button');
+  chip.type = 'button';
+  chip.className = 'tw-chip active';
+  chip.dataset.val = s + '-' + e;
+  chip.innerHTML = s + ':00-' + e + ':00 <span class="x" onclick="this.parentElement.remove()">×</span>';
+  box.appendChild(chip);
+  document.getElementById(startId).value = '';
+  document.getElementById(endId).value = '';
 }
 
 async function saveConditions() {

@@ -138,7 +138,10 @@ async def list_monitors(user: User = Depends(get_current_user)):
                     "is_active": m.is_active,
                     "max_price": m.max_price,
                     "cabin_class": m.cabin_class,
+                    "direct_only": m.direct_only,
                     "baggage_required": m.baggage_required,
+                    "departure_time_windows": m.departure_time_windows or [],
+                    "arrival_time_windows": m.arrival_time_windows or [],
                 }
             )
         return result

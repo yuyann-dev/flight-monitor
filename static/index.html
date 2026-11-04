@@ -667,6 +667,18 @@ function addEditTw(boxId, startId, endId) {
 
 async function saveConditions() {
   const mid = currentMonitorId;
+  // 保存前自动把输入框里未点"添加"的有效时段收进去
+  const flushInput = (boxId, startId, endId) => {
+    const s = parseInt(document.getElementById(startId).value);
+    const e = parseInt(document.getElementById(endId).value);
+    if (!isNaN(s) && !isNaN(e) && s >= 0 && e <= 24 && s < e) {
+      const box = document.getElementById(boxId);
+      const exists = Array.from(box.querySelectorAll('.tw-chip')).some(c => c.dataset.val === s + '-' + e);
+      if (!exists) addEditTw(boxId, startId, endId);
+    }
+  };
+  flushInput('editDepWin', 'editDepS', 'editDepE');
+  flushInput('editArrWin', 'editArrS', 'editArrE');
   const getWin = boxId =>
     Array.from(document.querySelectorAll('#'+boxId+' .tw-chip.active'))
       .map(el => el.dataset.val.split('-').map(Number));

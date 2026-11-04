@@ -74,6 +74,17 @@ async def run_single_monitor(mid: int):
             print(f"[scheduler] fliggy error: {e}")
 
         flights = all_flights
+
+        # 过滤掉用户手动剔除的航班
+        excluded = m.excluded_flights or []
+        if excluded:
+            before = len(flights)
+            flights = [f for f in flights if not any(
+                e["flight_no"] == f.get("flight_no") and e["date"] == f.get("date")
+                for e in excluded
+            )]
+            print(f"[scheduler] excluded {before - len(flights)} flights")
+
         if not flights:
             print(f"[scheduler] no flights for monitor {m.id}")
             return

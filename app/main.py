@@ -208,6 +208,26 @@ async def stop_monitor(mid: int, user: User = Depends(get_current_user)):
         db.close()
 
 
+@app.post("/api/monitors/{mid}/exclude-flight")
+async def exclude_flight(mid: int, body: dict, user: User = Depends(get_current_user)):
+    """剔除某个航班，以后不再监控它"""
+    db = SessionLocal()
+    try:
+        m = db.query(Monitor).filter(Monitor.id == mid, Monitor.user_id == user.id).first()
+        if not m:
+            raise HTTPException(status_code=404)
+        excluded = m.excluded_flights or []
+        flight_no = body.get("flight_no")
+        date = body.get("date")
+        if flight_no and date:
+            excluded.append({"flight_no": flight_no, "date": date})
+            m.excluded_flights = excluded
+            db.commit()
+        return {"ok": True, "excluded": excluded}
+    finally:
+        db.close()
+
+
 @app.get("/api/monitors/{mid}/history")
 async def monitor_history(mid: int, user: User = Depends(get_current_user)):
     db = SessionLocal()

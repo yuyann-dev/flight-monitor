@@ -369,6 +369,20 @@ function backToList() {
   window.scrollTo(0, 0);
 }
 
+async function excludeFlight(flightNo, date) {
+  if (!confirm(`确定不再关注 ${flightNo} (${date}) 吗？以后这个航班就不会出现在列表里了。`)) return;
+  try {
+    await api(`/api/monitors/${currentMonitorId}/exclude-flight`, {
+      method: 'POST',
+      body: JSON.stringify({flight_no: flightNo, date: date})
+    });
+    toast('已剔除，下次刷新就不会再显示了');
+    await loadDetail(currentMonitorId);
+  } catch(e) {
+    toast('操作失败: ' + e.message);
+  }
+}
+
 async function refreshDetail() {
   const btn = event.target;
   btn.disabled = true;
@@ -557,7 +571,10 @@ async function loadDetail(mid) {
               <div style="font-size: 11px; color: #999;">+机建燃油¥190</div>
             </div>
           </div>
-          ${f.link ? `<a href="${f.link}" target="_blank" class="btn btn-primary btn-sm" style="margin-top:10px; display:block; text-align:center;">去购买</a>` : ''}
+          <div style="display: flex; gap: 8px; margin-top:10px;">
+            ${f.link ? `<a href="${f.link}" target="_blank" class="btn btn-primary btn-sm" style="flex:1; text-align:center;">去购买</a>` : ''}
+            <button class="btn btn-outline btn-sm" onclick="excludeFlight('${f.flight_no}', '${f.date}')" style="color:#999;">不关注</button>
+          </div>
         </div>
       `).join('');
     }

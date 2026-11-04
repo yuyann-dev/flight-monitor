@@ -44,6 +44,7 @@ class Monitor(Base):
     departure_time_windows = Column(JSON, default=list)  # [[6,12],[18,23]] 出发时段
     arrival_time_windows = Column(JSON, default=list)    # 到达时段
     preferred_airlines = Column(JSON, default=list)
+    excluded_flights = Column(JSON, default=list)        # 被用户剔除的航班 [{flight_no, date}]
 
     # 状态
     is_active = Column(Boolean, default=True)

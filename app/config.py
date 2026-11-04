@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     variflight_mcp_key: str = ""
     # 飞常准最小调用间隔（小时）：0=不节流；>0 时用于把每月调用控制在免费额度内。
     # 每次触发产生 2 次工具调用，15 小时间隔约 96 次/月，低于 100 次免费额度
-    variflight_min_interval_hours: float = 6.0
+    variflight_min_interval_hours: float = 12.0
     # 系统主人邮箱：主人有活跃任务时，飞常准额度仅服务于主人
     owner_email: str = ""
 

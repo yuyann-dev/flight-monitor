@@ -393,12 +393,18 @@ const DIFFERENTIATED_AIRLINES = ['西部航空', '祥鹏航空', '首都航空',
 // 已确认：春秋航空、九元航空
 const ULTRA_LOW_COST_AIRLINES = ['春秋航空', '九元航空'];
 
-function getBaggageInfo(airlineName) {
+function getBaggageInfo(airlineName, cabinClass) {
+  const isEconomy = cabinClass === 'economy' || !cabinClass;
   for (const a of FULL_SERVICE_AIRLINES) {
-    if (airlineName.includes(a)) return `全服务航司：经济舱通常免费托运20kg（具体以购买页舱位为准）`;
+    if (airlineName.includes(a)) return `全服务航司：经济舱免费托运20kg（具体以购买页为准）`;
   }
   for (const a of DIFFERENTIATED_AIRLINES) {
-    if (airlineName.includes(a)) return `差异化航司：折扣舱可能无免费托运，全价舱有20kg（具体以购买页舱位为准）`;
+    if (airlineName.includes(a)) {
+      if (isEconomy) {
+        return `差异化航司：折扣经济舱通常无免费托运（具体以购买页为准）`;
+      }
+      return `差异化航司：全价舱有免费托运（具体以购买页为准）`;
+    }
   }
   for (const a of ULTRA_LOW_COST_AIRLINES) {
     if (airlineName.includes(a)) return `廉航：经济舱通常无免费托运，需付费购买（具体以购买页为准）`;
@@ -495,13 +501,18 @@ async function loadDetail(mid) {
     if (!flights.length) {
       flightsEl.innerHTML = '<div style="text-align:center; color:#e67e22; padding: 20px;">暂未获取到航班数据<br><small style="color:#999;">可能原因：日期太远（flyai免费版仅支持近期航班）、或航线暂无机票</small></div>';
     } else {
-      // 如果勾选了需要免费托运行李，只剔除确定是廉航的航班
+      // 如果勾选了需要免费托运行李，剔除廉航和差异化航司
+      // （因为市面上卖的基本都是折扣经济舱，差异化航司折扣舱没有免费托运）
       let filteredFlights = flights;
       if (m.baggage_required) {
         filteredFlights = flights.filter(f => {
           const airline = f.airline || '';
-          // 只有确定是廉航的才剔除，差异化航司保留（因为可能有也可能没有）
+          // 剔除廉航
           for (const a of ULTRA_LOW_COST_AIRLINES) {
+            if (airline.includes(a)) return false;
+          }
+          // 剔除差异化航司（折扣经济舱大概率无免费托运）
+          for (const a of DIFFERENTIATED_AIRLINES) {
             if (airline.includes(a)) return false;
           }
           return true;
@@ -519,7 +530,7 @@ async function loadDetail(mid) {
                 ${f.dep_time ? f.dep_time.substring(11, 16) : '--'} ${f.dep_airport || ''} → ${f.arr_time ? f.arr_time.substring(11, 16) : '--'} ${f.arr_airport || ''}
               </div>
               <div style="font-size: 11px; color: #999; margin-top: 4px;">
-                ${getBaggageInfo(f.airline || '')}
+                ${getBaggageInfo(f.airline || '', m.cabin_class)}
               </div>
             </div>
             <div style="text-align: right; margin-right: 12px;">

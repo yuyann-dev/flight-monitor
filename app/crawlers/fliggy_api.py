@@ -2,6 +2,7 @@
 import json
 import shutil
 import subprocess
+import time
 from app.airlines import classify, baggage_text
 
 
@@ -52,18 +53,34 @@ class FliggyCrawler:
         if ret_date:
             cmd += ["--back-date", ret_date]
 
-        try:
-            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-            if proc.returncode != 0:
-                print(f"[fliggy] flyai error: {proc.stderr[:200]}")
-                return []
+        # 飞猪API偶尔返回"搜索机票低价行业失败"，重试一次
+        for attempt in range(2):
+            try:
+                proc = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+                if proc.returncode != 0:
+                    print(f"[fliggy] flyai error: {proc.stderr[:200]}")
+                    return []
 
-            data = json.loads(proc.stdout)
-            if data.get("status") != 0:
-                print(f"[fliggy] flyai status not ok: {data.get('message')}")
+                data = json.loads(proc.stdout)
+                if data.get("status") != 0:
+                    msg = data.get("message", "")
+                    print(f"[fliggy] flyai status not ok: {msg}")
+                    if attempt == 0 and "失败" in msg:
+                        print("[fliggy] 飞猪临时错误，2秒后重试...")
+                        time.sleep(2)
+                        continue
+                    return []
+                break
+            except subprocess.TimeoutExpired:
+                print("[fliggy] flyai timeout")
                 return []
+            except Exception as e:
+                print(f"[fliggy] error: {e}")
+                return []
+        else:
+            return []
 
-            item_list = data.get("data", {}).get("itemList", [])
+        item_list = data.get("data", {}).get("itemList", [])
             flights = []
 
             for item in item_list:

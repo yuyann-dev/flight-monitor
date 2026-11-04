@@ -179,31 +179,44 @@ async def run_single_monitor(mid: int):
         date_list = _parse_date_range(m)
         print(f"[scheduler] crawling {len(date_list)} dates: {date_list}")
 
-        # 多数据源逐天爬取：飞猪（flyai CLI，免费高频）+ 飞常准（MCP，受额度与权限控制）
-        crawlers = [FliggyCrawler()]
-        if _variflight_allowed_for(db, m):
-            crawlers.append(
-                VariflightCrawler(
-                    api_key=settings.variflight_mcp_key,
-                    min_interval_hours=settings.variflight_min_interval_hours,
-                )
+        # 数据源策略：优先飞猪（免费高频），飞猪挂了才降级飞常准（省每月100次额度）
+        fliggy = FliggyCrawler()
+        use_variflight = _variflight_allowed_for(db, m)
+        variflight = None
+        if use_variflight:
+            variflight = VariflightCrawler(
+                api_key=settings.variflight_mcp_key,
+                min_interval_hours=settings.variflight_min_interval_hours,
             )
         else:
             print("[scheduler] 飞常准额度当前仅服务于系统主人，本任务跳过该数据源")
 
         all_flights = []
         fliggy_hit_limit = False
+        fliggy_ok = False  # 飞猪本轮是否拿到过数据
         for date_str in date_list:
             day_flights = []
-            for crawler in crawlers:
+            # 第一步：试飞猪
+            try:
+                found = fliggy.search(dep_code, arr_code, date_str)
+                day_flights.extend(found)
+                if found:
+                    fliggy_ok = True
+            except Exception as e:
+                print(f"[scheduler] {date_str} 飞猪 error: {e}")
+                if "429" in str(e) or "Trial limit" in str(e):
+                    fliggy_hit_limit = True
+
+            # 第二步：飞猪没拿到数据才用飞常准
+            if not day_flights and variflight:
                 try:
-                    found = crawler.search(dep_code, arr_code, date_str)
+                    found = variflight.search(dep_code, arr_code, date_str)
                     day_flights.extend(found)
+                    if found:
+                        print(f"[scheduler] {date_str} 飞常准补上 {len(found)} 班")
                 except Exception as e:
-                    msg = str(e)
-                    print(f"[scheduler] {date_str} {crawler.name} error: {e}")
-                    if "429" in msg or "Trial limit" in msg:
-                        fliggy_hit_limit = True
+                    print(f"[scheduler] {date_str} 飞常准 error: {e}")
+
             for f in day_flights:
                 f["date"] = date_str
             all_flights.extend(day_flights)

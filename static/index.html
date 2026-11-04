@@ -136,7 +136,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
     </div>
 
     <!-- New Monitor Form -->
-    <div class="card" style="margin-top: 20px;">
+    <div class="card" id="newFormCard" style="margin-top: 20px;">
       <h2>新建监控任务</h2>
       <div class="form-grid">
         <div class="input-group" style="position:relative">
@@ -355,6 +355,7 @@ function formatTime(isoStr) {
 async function showDetail(mid) {
   currentMonitorId = mid;
   document.getElementById('monitorListCard').classList.add('hidden');
+  document.getElementById('newFormCard').classList.add('hidden');
   document.getElementById('monitorDetailCard').classList.remove('hidden');
   await loadDetail(mid);
 }
@@ -362,7 +363,9 @@ async function showDetail(mid) {
 function backToList() {
   document.getElementById('monitorDetailCard').classList.add('hidden');
   document.getElementById('monitorListCard').classList.remove('hidden');
+  document.getElementById('newFormCard').classList.remove('hidden');
   if (priceChart) { priceChart.destroy(); priceChart = null; }
+  window.scrollTo(0, 0);
 }
 
 async function refreshDetail() {
@@ -393,9 +396,13 @@ const ULTRA_LOW_COST_AIRLINES = ['春秋航空', '九元航空'];
 
 function getBaggageInfo(airlineName, cabinClass) {
   const isEconomy = cabinClass === 'economy' || !cabinClass;
-  for (const a of FULL_SERVICE_AIRLINES) {
-    if (airlineName.includes(a)) return `全服务航司：经济舱免费托运20kg（具体以购买页为准）`;
+
+  // 先判断是不是廉航（最严格的优先级）
+  for (const a of ULTRA_LOW_COST_AIRLINES) {
+    if (airlineName.includes(a)) return `廉航：经济舱通常无免费托运，需付费购买（具体以购买页为准）`;
   }
+
+  // 再判断是不是差异化航司
   for (const a of DIFFERENTIATED_AIRLINES) {
     if (airlineName.includes(a)) {
       if (isEconomy) {
@@ -404,9 +411,12 @@ function getBaggageInfo(airlineName, cabinClass) {
       return `差异化航司：全价舱有免费托运（具体以购买页为准）`;
     }
   }
-  for (const a of ULTRA_LOW_COST_AIRLINES) {
-    if (airlineName.includes(a)) return `廉航：经济舱通常无免费托运，需付费购买（具体以购买页为准）`;
+
+  // 最后才是全服务航司
+  for (const a of FULL_SERVICE_AIRLINES) {
+    if (airlineName.includes(a)) return `全服务航司：经济舱免费托运20kg（具体以购买页为准）`;
   }
+
   return '行李额度请以购买页为准';
 }
 
@@ -444,16 +454,16 @@ async function loadDetail(mid) {
     adviceReason = `距出发仅${daysLeft}天，临期价格通常只会上涨，越晚越贵。`;
   } else if (pct <= 20 && daysLeft >= 14) {
     advice = '强烈建议入手';
-    adviceReason = `当前价格处于历史${Math.round(pct)}%分位（低于80%的时段），且距离出发还有${daysLeft}天，属于低价窗口。`;
+    adviceReason = `当前价格已经比历史上80%的时段都便宜，而且距离出发还有${daysLeft}天，正是买机票的好时候。`;
   } else if (pct <= 40) {
     advice = '可以考虑入手';
-    adviceReason = `当前价格处于历史${Math.round(pct)}%分位，价格偏低。`;
+    adviceReason = `当前价格已经比历史上60%的时段便宜，价格偏低。`;
   } else if (daysLeft > 45) {
     advice = '建议继续等待';
-    adviceReason = `距出发还有${daysLeft}天，价格尚未稳定，大概率还会下降。`;
+    adviceReason = `距出发还有${daysLeft}天，现在买太早了，价格大概率还会下降。`;
   } else {
     advice = '建议继续观望';
-    adviceReason = `当前价格处于历史${Math.round(pct)}%分位，价格适中，可再等待是否有更低价格。`;
+    adviceReason = `当前价格不便宜也不贵，可以再等等看会不会降价。`;
   }
 
   document.getElementById('buyAdvice').textContent = advice;

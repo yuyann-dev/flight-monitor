@@ -540,7 +540,7 @@ async function loadDetail(mid) {
 
     if (!flights.length || detailRes.stale) {
       flightsEl.innerHTML = detailRes.stale
-        ? '<div style="text-align:center; color:#e67e22; padding:20px;">数据源暂时不可用（飞猪免费额度今日已用完）<br><span style="color:#999; font-size:12px;">正在等待飞常准数据或额度恢复，不再显示旧数据避免误导</span></div>'
+        ? '<div style="text-align:center; color:#e67e22; padding:20px;">数据源暂时不可用<br><span style="color:#999; font-size:12px;">正在等待数据恢复，不再显示旧数据避免误导</span></div>'
         : '<div style="text-align:center; color:#e67e22; padding:20px;">暂未获取到航班数据<br><span style="color:#999; font-size:12px;">日期可能超出可查询范围，系统会持续监控</span></div>';
     } else {
       flightsEl.innerHTML = flights.map(f => {

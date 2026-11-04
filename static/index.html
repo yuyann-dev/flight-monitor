@@ -384,21 +384,21 @@ async function refreshDetail() {
 }
 
 // 全服务航司（经济舱标准票价免费托运20kg）
-const FULL_SERVICE_AIRLINES = ['国航', '东航', '南航', '海航', '川航', '深航', '厦航', '山东航', '上航', '中联航'];
-// 差异化航司（折扣舱无免费托运，全价舱有20kg）
-const DIFFERENTIATED_AIRLINES = ['西部航空', '祥鹏航空', '首都航空', '天津航', '青岛航', '乌鲁木齐航'];
-// 廉航（基本无免费托运）
+const FULL_SERVICE_AIRLINES = ['国航', '东航', '南航', '海航', '川航', '深航', '厦航', '山东航', '上航', '中联航', '青岛航'];
+// 差异化航司（折扣舱可能无免费托运，全价舱有20kg）
+const DIFFERENTIATED_AIRLINES = ['西部航空', '祥鹏航空', '首都航空', '天津航', '乌鲁木齐航'];
+// 廉航（经济舱基本无免费托运）
 const ULTRA_LOW_COST_AIRLINES = ['春秋航空', '九元航空'];
 
 function getBaggageInfo(airlineName) {
   for (const a of FULL_SERVICE_AIRLINES) {
-    if (airlineName.includes(a)) return '全服务航司：经济舱免费托运20kg';
+    if (airlineName.includes(a)) return '全服务航司：经济舱通常免费托运20kg（经验推断，以购买页为准）';
   }
   for (const a of DIFFERENTIATED_AIRLINES) {
-    if (airlineName.includes(a)) return '差异化航司：折扣舱可能无免费托运，以购买页为准';
+    if (airlineName.includes(a)) return '差异化航司：折扣舱可能无免费托运（经验推断，以购买页为准）';
   }
   for (const a of ULTRA_LOW_COST_AIRLINES) {
-    if (airlineName.includes(a)) return '廉航：经济舱基本无免费托运，需付费购买';
+    if (airlineName.includes(a)) return '廉航：经济舱通常无免费托运（经验推断，以购买页为准）';
   }
   return '行李额度请以购买页为准';
 }
@@ -492,16 +492,13 @@ async function loadDetail(mid) {
     if (!flights.length) {
       flightsEl.innerHTML = '<div style="text-align:center; color:#e67e22; padding: 20px;">暂未获取到航班数据<br><small style="color:#999;">可能原因：日期太远（flyai免费版仅支持近期航班）、或航线暂无机票</small></div>';
     } else {
-      // 如果勾选了需要免费托运行李，剔除无免费托运的航班
+      // 如果勾选了需要免费托运行李，只剔除确定是廉航的航班
       let filteredFlights = flights;
       if (m.baggage_required) {
         filteredFlights = flights.filter(f => {
           const airline = f.airline || '';
-          // 检查是不是廉航
+          // 只有确定是廉航的才剔除，差异化航司保留（因为可能有也可能没有）
           for (const a of ULTRA_LOW_COST_AIRLINES) {
-            if (airline.includes(a)) return false;
-          }
-          for (const a of DIFFERENTIATED_AIRLINES) {
             if (airline.includes(a)) return false;
           }
           return true;

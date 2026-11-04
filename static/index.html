@@ -230,7 +230,10 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
       </div>
 
       <h2 id="detailTitle" style="margin-bottom: 4px;"></h2>
-      <div id="detailSubtitle" style="font-size: 14px; color: #999; margin-bottom: 20px;"></div>
+      <div id="detailSubtitle" style="font-size: 14px; color: #999; margin-bottom: 12px;"></div>
+
+      <!-- 监控条件回顾 -->
+      <div id="detailConditions" style="margin-bottom: 20px; padding: 12px 14px; background: #f8f9fa; border-radius: 8px; font-size: 13px; color: #555; line-height: 1.9;"></div>
 
       <!-- 统计卡片 -->
       <div class="stat-grid" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 24px;">
@@ -459,6 +462,28 @@ async function loadDetail(mid) {
     dateText += ` ~ ${m.departure_date_end}`;
   }
   document.getElementById('detailSubtitle').textContent = `${dateText} · 单程 · ${cabinText}`;
+
+  // 监控条件回顾
+  const fmtWin = w => {
+    if (!w || !w.length) return '不限';
+    const label = (a,b) => {
+      if (a===0 && b===6) return '凌晨';
+      if (a===6 && b===12) return '上午';
+      if (a===12 && b===18) return '下午';
+      if (a===18 && b===24) return '晚上';
+      return `${a}:00-${b}:00`;
+    };
+    return w.map(x => label(x[0], x[1])).join('、');
+  };
+  const cond = [
+    `📅 日期：${dateText}`,
+    `✈️ ${m.direct_only ? '仅直飞' : '直飞/中转均可'}`,
+    `🧳 ${m.baggage_required ? '需要免费托运行李' : '不限行李额'}`,
+    `🕐 出发时段：${fmtWin(m.departure_time_windows)}`,
+    `🕕 到达时段：${fmtWin(m.arrival_time_windows)}`,
+  ];
+  document.getElementById('detailConditions').innerHTML =
+    '<b style="color:#333;">我的监控条件</b><br>' + cond.join('<br>');
 
   const history = await api(`/api/monitors/${mid}/history`);
   const latestPrice = history.length ? history[history.length - 1].price : null;

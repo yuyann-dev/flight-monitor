@@ -283,6 +283,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
 <script>
 const API = '/flight';
 let currentFees = { total_fee: 190 };
+let currentMonitor = null;
 
 async function api(path, opts={}) {
   const res = await fetch(API + path, { credentials: 'include', headers: {'Content-Type':'application/json'}, ...opts });
@@ -462,29 +463,8 @@ async function loadDetail(mid) {
     dateText += ` ~ ${m.departure_date_end}`;
   }
   document.getElementById('detailSubtitle').textContent = `${dateText} · 单程 · ${cabinText}`;
-
-  // 监控条件回顾
-  const fmtWin = w => {
-    if (!w || !w.length) return '不限';
-    const label = (a,b) => {
-      if (a===0 && b===6) return '凌晨';
-      if (a===6 && b===12) return '上午';
-      if (a===12 && b===18) return '下午';
-      if (a===18 && b===24) return '晚上';
-      return `${a}:00-${b}:00`;
-    };
-    return w.map(x => label(x[0], x[1])).join('、');
-  };
-  const cond = [
-    ['日期', dateText],
-    ['直飞', m.direct_only ? '仅直飞' : '直飞/中转均可'],
-    ['行李', m.baggage_required ? '需要免费托运行李' : '不限行李额'],
-    ['出发时段', fmtWin(m.departure_time_windows)],
-    ['到达时段', fmtWin(m.arrival_time_windows)],
-  ];
-  document.getElementById('detailConditions').innerHTML =
-    '<div style="font-size:12px; color:#999; margin-bottom:6px;">我的监控条件</div>' +
-    cond.map(([k,v]) => `<div><span style="color:#999;">${k}：</span><span style="color:#333;">${v}</span></div>`).join('');
+  currentMonitor = m;
+  renderConditions(m, false);
 
   const history = await api(`/api/monitors/${mid}/history`);
   const latestPrice = history.length ? history[history.length - 1].price : null;
@@ -593,6 +573,95 @@ async function loadDetail(mid) {
 }
 
 function toggleChip(el) { el.classList.toggle('active'); }
+
+const WINDOW_PRESETS = [[0,6],[6,12],[12,18],[18,24]];
+function winLabel(a,b){
+  if(a===0&&b===6) return '凌晨';
+  if(a===6&&b===12) return '上午';
+  if(a===12&&b===18) return '下午';
+  if(a===18&&b===24) return '晚上';
+  return `${a}:00-${b}:00`;
+}
+function fmtWin(w){
+  if(!w||!w.length) return '不限';
+  return w.map(x=>winLabel(x[0],x[1])).join('、');
+}
+function sameWin(a,b){ return a && b && a.length===b.length && a.every((x,i)=>x[0]===b[i][0]&&x[1]===b[i][1]); }
+
+function renderConditions(m, editing) {
+  const el = document.getElementById('detailConditions');
+  if (!editing) {
+    const rows = [
+      ['日期', `${m.departure_date_start} ~ ${m.departure_date_end}`],
+      ['直飞', m.direct_only ? '仅直飞' : '直飞/中转均可'],
+      ['行李', m.baggage_required ? '需要免费托运行李' : '不限行李额'],
+      ['出发时段', fmtWin(m.departure_time_windows)],
+      ['到达时段', fmtWin(m.arrival_time_windows)],
+    ];
+    el.innerHTML =
+      `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+        <span style="font-size:12px;color:#999;">我的监控条件</span>
+        <button type="button" onclick="startEditConditions()" style="background:none;border:none;color:#4A90D9;font-size:12px;cursor:pointer;">编辑</button>
+      </div>` +
+      rows.map(([k,v])=>`<div style="display:flex;gap:8px;line-height:1.9;"><span style="color:#999;min-width:60px;">${k}</span><span style="color:#333;">${v}</span></div>`).join('');
+    return;
+  }
+  // 编辑态
+  const mkChips = (boxId, selected) =>
+    WINDOW_PRESETS.map(w => {
+      const on = selected.some(x=>x[0]===w[0]&&x[1]===w[1]);
+      return `<button type="button" class="tw-chip${on?' active':''}" data-val="${w[0]}-${w[1]}" onclick="toggleChip(this)">${winLabel(w[0],w[1])}</button>`;
+    }).join('');
+  el.innerHTML =
+    `<div style="font-size:12px;color:#999;margin-bottom:10px;">编辑监控条件（保存后立即重新采集）</div>
+     <div style="margin-bottom:10px;">
+       <div style="font-size:12px;color:#666;margin-bottom:4px;">日期范围</div>
+       <div style="display:flex;gap:8px;flex-wrap:wrap;">
+         <input type="date" id="editDepStart" value="${m.departure_date_start}" style="padding:6px;border:1px solid #ddd;border-radius:6px;font-size:13px;">
+         <span style="color:#999;align-self:center;">至</span>
+         <input type="date" id="editDepEnd" value="${m.departure_date_end}" style="padding:6px;border:1px solid #ddd;border-radius:6px;font-size:13px;">
+       </div>
+     </div>
+     <div style="margin-bottom:10px;display:flex;gap:16px;flex-wrap:wrap;">
+       <label style="font-size:13px;color:#333;display:flex;align-items:center;gap:4px;"><input type="checkbox" id="editDirect" ${m.direct_only?'checked':''}> 仅直飞</label>
+       <label style="font-size:13px;color:#333;display:flex;align-items:center;gap:4px;"><input type="checkbox" id="editBag" ${m.baggage_required?'checked':''}> 需要免费托运行李</label>
+     </div>
+     <div style="margin-bottom:10px;">
+       <div style="font-size:12px;color:#666;margin-bottom:4px;">出发时段</div>
+       <div id="editDepWin">${mkChips('editDepWin', m.departure_time_windows||[])}</div>
+     </div>
+     <div style="margin-bottom:12px;">
+       <div style="font-size:12px;color:#666;margin-bottom:4px;">到达时段</div>
+       <div id="editArrWin">${mkChips('editArrWin', m.arrival_time_windows||[])}</div>
+     </div>
+     <div style="display:flex;gap:8px;">
+       <button type="button" onclick="saveConditions()" style="flex:1;padding:8px;background:#4A90D9;color:#fff;border:none;border-radius:6px;font-size:14px;cursor:pointer;">保存</button>
+       <button type="button" onclick="renderConditions(currentMonitor,false)" style="flex:1;padding:8px;background:#f0f0f0;color:#666;border:none;border-radius:6px;font-size:14px;cursor:pointer;">取消</button>
+     </div>`;
+}
+
+async function startEditConditions() {
+  if (currentMonitor) renderConditions(currentMonitor, true);
+}
+
+async function saveConditions() {
+  const mid = currentMonitorId;
+  const getWin = boxId =>
+    Array.from(document.querySelectorAll('#'+boxId+' .tw-chip.active'))
+      .map(el => el.dataset.val.split('-').map(Number));
+  const body = {
+    departure_date_start: document.getElementById('editDepStart').value,
+    departure_date_end: document.getElementById('editDepEnd').value,
+    direct_only: document.getElementById('editDirect').checked,
+    baggage_required: document.getElementById('editBag').checked,
+    departure_time_windows: getWin('editDepWin'),
+    arrival_time_windows: getWin('editArrWin'),
+  };
+  if (!body.departure_date_start || !body.departure_date_end) return toast('请选择日期');
+  await api(`/api/monitors/${mid}`, {method:'PUT', body: JSON.stringify(body)});
+  toast('已保存，正在重新采集');
+  await loadDetail(mid);
+}
 
 function addTw(boxId, startId, endId) {
   const s = parseInt(document.getElementById(startId).value);

@@ -54,6 +54,16 @@ class MonitorCreate(BaseModel):
     arrival_time_windows: list = []
 
 
+class MonitorUpdate(BaseModel):
+    departure_date_start: str | None = None
+    departure_date_end: str | None = None
+    direct_only: bool | None = None
+    baggage_required: bool | None = None
+    max_price: int | None = None
+    departure_time_windows: list | None = None
+    arrival_time_windows: list | None = None
+
+
 @app.get("/api/health")
 async def health():
     return {"status": "ok"}
@@ -177,6 +187,38 @@ async def stop_monitor(mid: int, user: User = Depends(get_current_user)):
             raise HTTPException(status_code=404)
         m.is_active = False
         db.commit()
+        return {"ok": True}
+    finally:
+        db.close()
+
+
+@app.put("/api/monitors/{mid}")
+async def update_monitor(mid: int, req: MonitorUpdate, user: User = Depends(get_current_user)):
+    db = SessionLocal()
+    try:
+        m = db.query(Monitor).filter(Monitor.id == mid, Monitor.user_id == user.id).first()
+        if not m:
+            raise HTTPException(status_code=404)
+        data = req.model_dump(exclude_unset=True)
+        if "departure_date_start" in data:
+            m.departure_date_start = data["departure_date_start"]
+        if "departure_date_end" in data:
+            m.departure_date_end = data["departure_date_end"] or m.departure_date_start
+        if "direct_only" in data:
+            m.direct_only = data["direct_only"]
+        if "baggage_required" in data:
+            m.baggage_required = data["baggage_required"]
+        if "max_price" in data:
+            m.max_price = data["max_price"]
+        if "departure_time_windows" in data:
+            m.departure_time_windows = data["departure_time_windows"] or []
+        if "arrival_time_windows" in data:
+            m.arrival_time_windows = data["arrival_time_windows"] or []
+        db.commit()
+        # 后台立即重新采集一次，让新条件立刻生效
+        import asyncio
+        from app.scheduler import run_single_monitor
+        asyncio.create_task(run_single_monitor(m.id))
         return {"ok": True}
     finally:
         db.close()

@@ -10,6 +10,7 @@ from app.analyzer import should_notify
 from app.airlines import has_free_baggage
 from app.email_service import send_price_alert
 from app.config import settings
+from app.rbac import is_owner, is_high_tier
 
 
 scheduler = AsyncIOScheduler(timezone="Asia/Shanghai")
@@ -143,25 +144,13 @@ def _merge_multi_source(flights: list[dict]) -> list[dict]:
 
 
 def _variflight_allowed_for(db, monitor) -> bool:
-    """飞常准额度归属判断。
+    """飞常准每月免费额度仅服务系统主人本人。
 
-    系统主人（owner_email，见配置）名下存在活跃监控任务时，
-    飞常准仅服务于主人自己的任务，其他用户的任务不消耗该额度；
-    只有当主人没有任何活跃任务时，额度才允许用于其他用户。
+    按需求：VIP/普通用户手动刷新都不调用飞常准，飞常准不参与自动轮次；
+    避免多用户分摊少量免费工具调用次数。
     """
     owner = db.query(User).filter(User.email == settings.owner_email).first()
-    if not owner:
-        # 未配置/找不到主人账号时，不做额外限制
-        return True
-    owner_has_active = (
-        db.query(Monitor)
-        .filter(Monitor.user_id == owner.id, Monitor.is_active == True)
-        .first()
-        is not None
-    )
-    if not owner_has_active:
-        return True
-    return monitor.user_id == owner.id
+    return bool(owner and monitor.user_id == owner.id)
 
 
 async def run_single_monitor(mid: int, manual_refresh: bool = False, allow_variflight: bool = True) -> bool:
@@ -389,11 +378,10 @@ async def run_monitor_job():
         print(f"[scheduler] batch #{_round_counter} triggered at {datetime.now().isoformat()}")
         db = SessionLocal()
         try:
-            owner = db.query(User).filter(User.email == settings.owner_email).first()
             monitors = db.query(Monitor).filter(Monitor.is_active == True).all()
             for m in monitors:
-                # 别人的任务隔轮跑（每60分钟），用户的每轮都跑（30分钟）
-                if owner and m.user_id != owner.id and _round_counter % 2 != 0:
+                # 主人/VIP 每轮采集（30分钟）；普通用户隔轮（约60分钟）
+                if not is_high_tier(m.owner) and _round_counter % 2 != 0:
                     continue
                 await run_single_monitor(m.id)
         finally:

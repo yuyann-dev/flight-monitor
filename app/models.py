@@ -13,6 +13,8 @@ class User(Base):
     __tablename__ = "users"
     id = Column(Integer, primary_key=True, index=True)
     email = Column(String(255), unique=True, index=True, nullable=False)
+    # 角色：owner=系统主人（由邮箱锚定，不可改）；vip=付费/轻量会员；normal=普通用户
+    role = Column(String(20), nullable=False, default="normal", server_default="normal")
     created_at = Column(DateTime, default=datetime.utcnow)
     is_active = Column(Boolean, default=True)
     monitors = relationship("Monitor", back_populates="owner")
@@ -80,3 +82,11 @@ class EmailCode(Base):
 
 def init_db():
     Base.metadata.create_all(bind=engine)
+    # 幂等补齐旧库新增的 role 列（SQLite 不支持 ADD COLUMN IF NOT EXISTS）
+    from sqlalchemy import inspect, text
+    existing = {c["name"] for c in inspect(engine).get_columns("users")}
+    if "role" not in existing:
+        with engine.begin() as conn:
+            conn.execute(
+                text("ALTER TABLE users ADD COLUMN role VARCHAR(20) NOT NULL DEFAULT 'normal'")
+            )

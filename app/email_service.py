@@ -81,17 +81,38 @@ def send_price_alert(email: str, monitor_info: dict, flights: list, analysis: di
         if is_new_low else ""
     )
 
-    # 根据建议类型选文案
-    if advice == "建议尽快购票":
-        title = "价格低位且临近出行，建议尽快购票"
+    # 按“命中心理价 / 行情分达标”的组合选择客观、不绝对的措辞
+    hit = bool(analysis.get("hit_target"))
+    strong = (analysis.get("score") or 0) >= 60
+    if hit and strong:
+        title = "同时达到心理价且行情信号支持，可关注入手"
         title_color = "#c0392b"
-        tip_line = "当前价格处于低位，且距离出发较近，继续等待可能面临涨价风险，建议尽快下单。"
-        subject_prefix = "尽快购票"
-    else:
-        title = "价格处于较低水平，可以考虑入手"
+        subject_prefix = "关注入手"
+        tip_line = ("当前裸票价已达到你设定的心理价位，且综合距出行时间、价格位置与趋势后行情支持度较高；"
+                    "机票价格随供需与日期波动，是否下单请结合你的行程自行决定。")
+    elif hit:
+        title = "已达到你设定的心理价位（行情信号偏中性）"
         title_color = "#e67e22"
-        tip_line = "当前价格在你监控周期内处于较低位置，可以考虑入手，也可以再观察几天。"
-        subject_prefix = "考虑购票"
+        subject_prefix = "达到心理价"
+        tip_line = ("当前裸票价已不高于你设定的心理价位；但从现有样本与趋势看行情信号偏中性，"
+                    "当前未必处于近期最低点，后续仍可能波动或下行，仅供参考，请结合出行时间自行判断是否入手。")
+    elif strong:
+        title = "行情上处于相对可关注价位（未达心理价）"
+        title_color = "#e67e22"
+        subject_prefix = "行情关注"
+        tip_line = ("当前虽未达到你设定的心理价位，但综合距出行时间、价格位置与趋势，当前处于相对值得关注的区间；"
+                    "后续走势仍存在不确定性，请按你的预算与行程自行权衡。")
+    else:
+        title = "价格出现变化，请留意"
+        title_color = "#e67e22"
+        subject_prefix = "价格提醒"
+        tip_line = "当前价格出现变化，请结合自身需求与出行时间自行判断。"
+
+    target_price = analysis.get("target_price")
+    target_row = (
+        f'<p style="margin:5px 0; color:#555;">你的心理价位（裸票价口径）：<b>¥{target_price}</b></p>'
+        if target_price else ""
+    )
 
     body = f"""
     <div style="font-family: -apple-system, Arial, sans-serif; max-width: 640px; margin: 0 auto;">
@@ -105,6 +126,7 @@ def send_price_alert(email: str, monitor_info: dict, flights: list, analysis: di
         <p style="margin:5px 0;">含税总价（机建+燃油）：<b>¥{analysis['total_price']}</b>
           <span style="color:#999; font-size:12px;">
           （机建¥{analysis['airport_fee']} + 燃油¥{analysis['fuel_fee']}）</span></p>
+        {target_row}
         {new_low_banner}
         <p style="margin:8px 0 0 0; color:#666; font-size:13px;">{analysis['reason']}</p>
       </div>

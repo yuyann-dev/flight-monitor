@@ -8,6 +8,7 @@ from datetime import datetime
 from app.config import BASE_DIR, settings
 from app.models import init_db, SessionLocal, Monitor, User, PriceSample
 from app.auth import create_login_code, send_code_email, login_with_code, verify_token, code_cooldown_seconds
+from app.rbac import role_of, is_owner, is_high_tier
 from app.scheduler import start_scheduler
 
 app = FastAPI(title="Flight Monitor")
@@ -76,6 +77,10 @@ class MonitorUpdate(BaseModel):
     arrival_time_windows: list | None = None
 
 
+class RoleUpdate(BaseModel):
+    role: str
+
+
 @app.get("/api/health")
 async def health():
     return {"status": "ok"}
@@ -115,7 +120,8 @@ async def logout():
 
 @app.get("/api/auth/me")
 async def me(user: User = Depends(get_current_user)):
-    return {"email": user.email}
+    r = role_of(user)
+    return {"email": user.email, "role": r, "is_owner": r == "owner", "is_vip": r == "vip"}
 
 
 # ── 监控 CRUD ──
@@ -399,66 +405,99 @@ async def monitor_refresh(mid: int, user: User = Depends(get_current_user)):
         monitor = db.query(Monitor).filter(Monitor.id == mid, Monitor.user_id == user.id).first()
         if not monitor:
             raise HTTPException(status_code=404)
-        owner = db.query(User).filter(User.email == settings.owner_email).first()
-        is_owner = owner and user.id == owner.id
     finally:
         db.close()
 
+    role = role_of(user)
     today = _time.strftime("%Y-%m-%d")
-    quota_file = Path(settings.database_url.replace("sqlite:///", "")).parent / ".variflight_daily_quota"
+    data_dir = Path(settings.database_url.replace("sqlite:///", "")).parent
 
-    if is_owner:
-        # 主人：飞猪手动刷新不限额；飞常准每天最多3次，且只有飞猪失败时才消耗
+    # 主人：飞猪手动不限次；飞常准每日最多3次，仅飞猪失败时才消耗
+    if role == "owner":
+        quota_file = data_dir / ".variflight_daily_quota"
         used_today = 0
         if quota_file.exists():
             try:
                 d, c = quota_file.read_text().strip().split(":")
-                if d == today: used_today = int(c)
-            except Exception: pass
+                if d == today:
+                    used_today = int(c)
+            except Exception:
+                pass
         allow_variflight = used_today < 3
         variflight_used = await run_single_monitor(mid, manual_refresh=True, allow_variflight=allow_variflight)
         if variflight_used:
             quota_file.write_text(f"{today}:{used_today + 1}")
-            left = 3 - used_today - 1
-            return {"ok": True, "used_variflight": True, "variflight_left": left}
-        # 飞猪直接成功：不强调飞常准剩余额度，避免误导用户以为依赖备用源
+            return {"ok": True, "used_variflight": True, "variflight_left": 3 - used_today - 1}
         if not allow_variflight:
             return {"ok": True, "note": "飞常准今日3次已用完，本次仅用飞猪查询"}
         return {"ok": True}
-    else:
-        # 其他用户：手动刷新（含飞猪）每天限10次；飞常准另计每天3次，
-        # 且仅当主人无活跃任务时才允许使用（归属由 run_single_monitor 内 _variflight_allowed_for 兜底）
-        data_dir = Path(settings.database_url.replace("sqlite:///", "")).parent
-        other_quota = data_dir / ".other_refresh_quota"
-        used = 0
-        if other_quota.exists():
-            try:
-                d, c = other_quota.read_text().strip().split(":")
-                if d == today: used = int(c)
-            except Exception: pass
-        if used >= 10:
-            return {"ok": False, "msg": "今日手动刷新次数已用完（10次），明天自动恢复"}
 
-        vfile = data_dir / ".variflight_other_quota"
-        v_used = 0
-        if vfile.exists():
-            try:
-                d, c = vfile.read_text().strip().split(":")
-                if d == today: v_used = int(c)
-            except Exception: pass
-        allow_variflight = v_used < 3
+    # VIP（轻量档）：飞猪手动刷新不限次；不启用飞常准（免费备用源仅留给主人）
+    if role == "vip":
+        await run_single_monitor(mid, manual_refresh=True, allow_variflight=False)
+        return {"ok": True, "tier": "vip"}
 
-        used_v = await run_single_monitor(mid, manual_refresh=True, allow_variflight=allow_variflight)
-        other_quota.write_text(f"{today}:{used + 1}")
-        if used_v:
-            vfile.write_text(f"{today}:{v_used + 1}")
-            return {"ok": True, "used_variflight": True,
-                    "refresh_left": 10 - used - 1, "variflight_left": 3 - v_used - 1}
-        note = "飞常准今日3次已用完，本次仅用飞猪查询" if not allow_variflight else None
-        result = {"ok": True, "refresh_left": 10 - used - 1}
-        if note:
-            result["note"] = note
-        return result
+    # 普通用户：飞猪手动刷新每日10次；不启用飞常准
+    other_quota = data_dir / ".other_refresh_quota"
+    used = 0
+    if other_quota.exists():
+        try:
+            d, c = other_quota.read_text().strip().split(":")
+            if d == today:
+                used = int(c)
+        except Exception:
+            pass
+    if used >= 10:
+        return {"ok": False, "msg": "今日手动刷新次数已用完（10次），明天自动恢复"}
+    await run_single_monitor(mid, manual_refresh=True, allow_variflight=False)
+    other_quota.write_text(f"{today}:{used + 1}")
+    return {"ok": True, "refresh_left": 10 - used - 1}
+
+
+# ── 管理员：用户与角色（仅系统主人）──
+@app.get("/api/admin/users")
+async def admin_list_users(user: User = Depends(get_current_user)):
+    if not is_owner(user):
+        raise HTTPException(status_code=403, detail="无管理员权限")
+    db = SessionLocal()
+    try:
+        out = []
+        for u in db.query(User).order_by(User.id).all():
+            total = db.query(Monitor).filter(Monitor.user_id == u.id).count()
+            active = db.query(Monitor).filter(
+                Monitor.user_id == u.id, Monitor.is_active == True
+            ).count()
+            out.append({
+                "id": u.id,
+                "email": u.email,
+                "role": role_of(u),
+                "created_at": u.created_at.isoformat() if u.created_at else None,
+                "monitor_count": total,
+                "active_count": active,
+            })
+        return out
+    finally:
+        db.close()
+
+
+@app.post("/api/admin/users/{uid}/role")
+async def admin_set_role(uid: int, body: RoleUpdate, user: User = Depends(get_current_user)):
+    if not is_owner(user):
+        raise HTTPException(status_code=403, detail="无管理员权限")
+    if body.role not in ("vip", "normal"):
+        raise HTTPException(status_code=400, detail="角色只能设为 vip 或 normal")
+    db = SessionLocal()
+    try:
+        target = db.query(User).filter(User.id == uid).first()
+        if not target:
+            raise HTTPException(status_code=404, detail="用户不存在")
+        if target.email == settings.owner_email:
+            raise HTTPException(status_code=400, detail="系统主人账号角色不可修改")
+        target.role = body.role
+        db.commit()
+        return {"ok": True, "id": target.id, "role": role_of(target)}
+    finally:
+        db.close()
 
 
 # ── 静态资源与前端 ──
@@ -481,4 +520,14 @@ async def spa_fallback(full_path: str):
 
 @app.on_event("startup")
 async def startup():
+    # 幂等锚定主人账号角色（权限以邮箱权威判定，DB 角色字段供列表展示与 VIP 标记用）
+    if settings.owner_email:
+        db = SessionLocal()
+        try:
+            owner = db.query(User).filter(User.email == settings.owner_email).first()
+            if owner and owner.role != "owner":
+                owner.role = "owner"
+                db.commit()
+        finally:
+            db.close()
     start_scheduler()

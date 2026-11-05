@@ -152,6 +152,13 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
       <div id="monitorList"></div>
     </div>
 
+    <!-- Admin Panel（仅主人可见，由 applyAdminVisibility 控制） -->
+    <div class="card hidden" id="adminCard" style="margin-top:20px;">
+      <h2>用户管理 <small style="font-size:12px;color:#999;font-weight:normal;">仅管理员可见 · 切换普通用户 / VIP 待遇</small></h2>
+      <p style="font-size:12px;color:#888;margin:6px 0 12px;">VIP 待遇：飞猪手动刷新不限次、自动采集每 30 分钟一轮；飞常准备用源仍仅主人本人可用。</p>
+      <div id="adminUserList"></div>
+    </div>
+
     <!-- New Monitor Form (下) -->
     <div class="card" id="newFormCard" style="margin-top: 20px;">
       <h2>新建监控任务</h2>
@@ -371,10 +378,18 @@ function showLogin() {
   document.getElementById('loginPage').classList.remove('hidden');
   document.getElementById('appPage').classList.add('hidden');
 }
+function applyAdminVisibility() {
+  const card = document.getElementById('adminCard');
+  if (!card) return;
+  if (me.is_owner) card.classList.remove('hidden');
+  else card.classList.add('hidden');
+}
 function showApp() {
   document.getElementById('loginPage').classList.add('hidden');
   document.getElementById('appPage').classList.remove('hidden');
   isDetailView = false;
+  applyAdminVisibility();
+  if (me.is_owner) loadAdminUsers();
   loadMonitors();
 }
 
@@ -397,7 +412,8 @@ async function verifyCode() {
   try {
     const res = await api('/api/auth/verify', {method:'POST', body: JSON.stringify({email, code})});
     if (res.ok) {
-      document.getElementById('userEmail').textContent = email;
+      me = await api('/api/auth/me');
+      document.getElementById('userEmail').textContent = me.email;
       showApp();
     }
   } catch(err) {
@@ -407,11 +423,59 @@ async function verifyCode() {
 
 async function logout() {
   try { await api('/api/auth/logout', {method:'POST'}); } catch(e) { /* 退出本地态即可 */ }
+  me = { email: "", role: "normal", is_owner: false, is_vip: false };
+  applyAdminVisibility();
   showLogin();
+}
+
+// ── 管理员面板：仅主人可见可改 ──
+async function loadAdminUsers() {
+  const el = document.getElementById('adminUserList');
+  if (!el) return;
+  try {
+    const users = await api('/api/admin/users');
+    if (!users || !users.length) { el.innerHTML = '<div class="empty">暂无注册用户</div>'; return; }
+    const rows = users.map(u => {
+      const badge = u.role === 'owner'
+        ? '<span style="color:#c0392b;font-weight:bold;">主人</span>'
+        : u.role === 'vip'
+          ? '<span style="color:#8e44ad;font-weight:bold;">VIP</span>'
+          : '<span style="color:#888;">普通用户</span>';
+      const op = u.role === 'owner'
+        ? '<span style="color:#bbb;font-size:12px;">不可修改</span>'
+        : u.role === 'vip'
+          ? `<button class="btn btn-outline btn-sm" onclick="setUserRole(${u.id},'normal')">降为普通</button>`
+          : `<button class="btn btn-primary btn-sm" onclick="setUserRole(${u.id},'vip')">设为 VIP</button>`;
+      const reg = u.created_at ? String(u.created_at).slice(0, 16).replace('T', ' ') : '--';
+      return `<tr style="border-bottom:1px solid #eee;">
+        <td style="padding:9px 8px;">${esc(u.email)}</td>
+        <td style="padding:9px 8px;">${badge}</td>
+        <td style="padding:9px 8px;color:#666;">${esc(reg)}</td>
+        <td style="padding:9px 8px;">${u.monitor_count}（活跃 ${u.active_count}）</td>
+        <td style="padding:9px 8px;">${op}</td></tr>`;
+    }).join('');
+    el.innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:14px;">
+      <thead><tr style="background:#f5f7fa;text-align:left;">
+        <th style="padding:8px;">邮箱</th><th style="padding:8px;">角色</th>
+        <th style="padding:8px;">注册时间</th><th style="padding:8px;">任务数</th>
+        <th style="padding:8px;">操作</th></tr></thead><tbody>${rows}</tbody></table>`;
+  } catch(err) {
+    el.innerHTML = '<div class="empty">用户列表加载失败: ' + esc(err.message) + '</div>';
+  }
+}
+async function setUserRole(uid, role) {
+  try {
+    await api(`/api/admin/users/${uid}/role`, {method:'POST', body: JSON.stringify({role})});
+    toast(role === 'vip' ? '已设为 VIP（飞猪刷新不限次、30 分钟轮询）' : '已降为普通用户');
+    await loadAdminUsers();
+  } catch(err) {
+    toast('角色修改失败: ' + err.message);
+  }
 }
 
 let currentMonitorId = null;
 let priceChart = null;
+let me = { email: "", role: "normal", is_owner: false, is_vip: false };
 
 async function loadMonitors() {
   const el = document.getElementById('monitorList');
@@ -459,6 +523,7 @@ async function _renderDetail(mid) {
   isDetailView = true;
   document.getElementById('monitorListCard').classList.add('hidden');
   document.getElementById('newFormCard').classList.add('hidden');
+  document.getElementById('adminCard').classList.add('hidden');
   document.getElementById('monitorDetailCard').classList.remove('hidden');
   await loadDetail(mid);
 }
@@ -469,6 +534,7 @@ function _renderList() {
   document.getElementById('monitorDetailCard').classList.add('hidden');
   document.getElementById('monitorListCard').classList.remove('hidden');
   document.getElementById('newFormCard').classList.remove('hidden');
+  applyAdminVisibility();
   if (priceChart) { priceChart.destroy(); priceChart = null; }
   window.scrollTo(0, 0);
 }
@@ -925,7 +991,7 @@ async function stopMonitor(id) {
 // Check auth on load
 (async () => {
   try {
-    const me = await api('/api/auth/me');
+    me = await api('/api/auth/me');
     document.getElementById('userEmail').textContent = me.email;
     showApp();
   } catch(e) { showLogin(); }

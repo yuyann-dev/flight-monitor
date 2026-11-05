@@ -200,37 +200,18 @@ def generate_advice(monitor: Monitor, samples: list[PriceSample]) -> dict:
 def should_notify(
     monitor: Monitor, samples: list[PriceSample], current_price: float
 ) -> tuple[bool, str, dict]:
-    """是否发邮件提醒：核心评估 + 冷却期规则。"""
+    """是否发邮件提醒：双触发（命中心理价 或 综合分>=60），无冷却/高位硬拦截。"""
     result = _evaluate(monitor, samples, current_price_override=current_price)
-    now = datetime.utcnow()
+    if current_price is None:
+        return False, "", {}
 
-    # 只有倾向“买”的建议才考虑提醒
+    hit_target = bool(result.get("hit_target"))
     is_buy_advice = result["advice"] in ("建议考虑购票", "建议尽快购票")
     score = result["buy_score"] if is_buy_advice else 0.0
     reasons = list(result["reasons"])
 
-    # 冷却期：同航线一段时间内不重复打扰，除非再降一定比例
-    if monitor.last_notified_at:
-        hours_since = (now - monitor.last_notified_at).total_seconds() / 3600
-        if hours_since < settings.notify_cooldown_hours:
-            if (
-                monitor.last_notified_price
-                and current_price
-                <= monitor.last_notified_price
-                * (1 - settings.notify_price_drop_pct / 100)
-            ):
-                drop_pct = round(
-                    (1 - current_price / monitor.last_notified_price) * 100, 1
-                )
-                reasons.append(f"比上次提醒又降了{drop_pct}%")
-            else:
-                score = 0.0  # 冷却期内不重复提醒
-
-    # 价格不应明显高于历史最低（防止高位误报）
-    if monitor.best_price_ever and current_price > monitor.best_price_ever * 1.1:
-        score = 0.0
-
-    should_alert = score >= 60.0
+    # 双触发：命中心理价，或买入倾向综合分达标；不做冷却/高位硬拦截，避免错过提醒
+    should_alert = hit_target or score >= 60.0
 
     fees = compute_fees()
     analysis = {
@@ -241,6 +222,8 @@ def should_notify(
         "percentile": result["percentile"],
         "forecast_price": result["forecast_price"],
         "score": score,
+        "hit_target": hit_target,
+        "target_price": monitor.max_price,
         "reason": "；".join(reasons[:4]),
         "days_left": result["days_left"],
         "advice": result["advice"],

@@ -65,11 +65,11 @@ def _time_stage(days_left: int) -> tuple[float, str]:
     if days_left < 0:
         return 0.0, "航班日期已过"
     if days_left <= 3:
-        return 85.0, "临期航班，价格通常只会上涨，越早买越划算"
+        return 85.0, "临期航班票价通常趋紧，建议尽早对比安排"
     if days_left <= 7:
-        return 75.0, "临近出发，价格已进入上升通道，建议尽快确定"
+        return 75.0, "临近出行，票价存在上行可能，可尽早安排"
     if days_left <= 14:
-        return 70.0, "现在通常是国内航线票价较低的阶段，适合出手"
+        return 70.0, "该阶段国内航线票价相对友好，可多加关注"
     if days_left <= 30:
         return 40.0, "距离出发还有一段时间，价格后续可能还有下降空间"
     return 30.0, "距离出发较远，通常票价还会继续调整"
@@ -124,23 +124,23 @@ def _evaluate(monitor: Monitor, samples: list[PriceSample],
     if len(history_prices) >= 3:
         percentile = percentile_rank(current_price, history_prices[-30:])
         if percentile <= 25:
-            reasons.append("当前价格处于你监控周期内的较低水平")
+            reasons.append("当前裸票价处于你监控周期内的较低水平")
             buy_score += 80 * 0.25
         elif percentile >= 75:
-            reasons.append("当前价格处于你监控周期内的较高水平")
+            reasons.append("当前裸票价处于你监控周期内的较高水平")
             buy_score += 20 * 0.25
         else:
-            reasons.append("当前价格处于你监控周期内的中等水平")
+            reasons.append("当前裸票价处于你监控周期内的中等水平")
             buy_score += 50 * 0.25
 
     # 3. 趋势预测
     forecast = ewma_forecast(history_prices[-14:]) if len(history_prices) >= 5 else None
     if forecast is not None:
         if current_price < forecast * 0.97:
-            reasons.append("当前价格低于近期预测均价，短期内性价比较高")
+            reasons.append("当前裸票价低于近期预测均价，短期走势相对偏好")
             buy_score += 70 * 0.15
         elif current_price > forecast * 1.03:
-            reasons.append("当前价格高于近期预测均价，后续可能有回调")
+            reasons.append("当前裸票价高于近期预测均价，后续可能有回调")
             buy_score += 30 * 0.15
         else:
             buy_score += 50 * 0.15
@@ -149,7 +149,7 @@ def _evaluate(monitor: Monitor, samples: list[PriceSample],
     hit_target = bool(monitor.max_price and current_price <= monitor.max_price)
     if hit_target:
         reasons.append(
-            f"当前价格¥{current_price}，已达到你设定的心理价位¥{monitor.max_price}"
+            f"当前裸票价¥{current_price}，已达到你设定的心理价位¥{monitor.max_price}"
         )
         buy_score += 85 * 0.10
 

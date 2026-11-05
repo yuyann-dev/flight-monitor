@@ -185,7 +185,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
         <div class="input-group">
           <label>心理价位（裸票价格，不含机建燃油）</label>
           <input type="number" id="maxPrice" placeholder="如 500">
-          <small style="color:#999; font-size:12px;">机建+燃油另算，到这个价或系统预判低价时都会发邮件提醒。</small>
+          <small style="color:#999; font-size:12px;">机建+燃油另算；裸票价达到此心理价位、或行情达到提醒标准时会发邮件，供你参考决策。</small>
         </div>
         <div class="input-group">
           <label>出发时段（点标签选择，或下方输入后直接保存即可）</label>
@@ -223,10 +223,10 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
         </div>
       </div>
       <div style="background:#f8f9fa; padding:12px; border-radius:8px; margin:16px 0; font-size:13px; color:#666;">
-        <b>提醒规则：</b>满足任一条件即发邮件——<br>
-        ① 价格降到你设定的心理价位；<br>
-        ② 系统综合时间阶段和价格走势，判断当前就是近期低价。<br>
-        同一航线6小时内不重复打扰，除非价格再降5%以上。
+        <b>提醒规则（满足任一即发邮件，客观参考、非强制购买建议）：</b><br>
+        ① 当前裸票价 ≤ 你设定的心理价位；<br>
+        ② 综合出行时间、价格位置与走势，行情达到提醒标准（即使未到心理价位也会提醒）。<br>
+        购票后可在页面停止对应任务，避免继续收到提醒。
       </div>
       <button class="btn btn-primary" onclick="createMonitor()">开始监控</button>
     </div>
@@ -250,7 +250,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
       <!-- 统计卡片 -->
       <div class="stat-grid" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 24px;">
         <div style="background: #fff5f5; padding: 16px; border-radius: 10px; text-align: center;">
-          <div style="font-size: 12px; color: #999;">当前最低</div>
+          <div style="font-size: 12px; color: #999;">当前裸票最低</div>
           <div style="font-size: 22px; font-weight: bold; color: #e74c3c;" id="detailCurrentPrice">-</div>
         </div>
         <div style="background: #f0fff4; padding: 16px; border-radius: 10px; text-align: center;">
@@ -269,9 +269,10 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
 
       <!-- 购买建议 -->
       <div style="margin-bottom: 24px; padding: 16px; background: #f8f9fa; border-left: 4px solid #3498db; border-radius: 8px;">
-        <div style="font-size: 13px; color: #666; margin-bottom: 8px;">购买建议</div>
+        <div style="font-size: 13px; color: #666; margin-bottom: 8px;">行情参考建议</div>
         <div id="buyAdvice" style="font-size: 16px; font-weight: 600; margin-bottom: 6px; color: #2c3e50;">分析中...</div>
         <div id="buyAdviceReason" style="font-size: 13px; color: #666; line-height: 1.6;"></div>
+        <div style="font-size:12px;color:#999;margin-top:6px;">以上为基于历史价格与行情的统计参考，仅供决策参考，实际价格受节假日、供需等因素影响；邮件提醒不等于强制建议购买。</div>
       </div>
 
       <!-- 价格走势 -->
@@ -494,7 +495,7 @@ async function loadMonitors() {
       </div>
       <div class="monitor-side">
         ${m.latest_price ? `
-          <div class="side-title">当前最低</div>
+          <div class="side-title">当前裸票最低</div>
           <div class="side-price">¥${m.latest_price}</div>
           <div class="side-sub">历史最低 ${m.best_price != null ? '¥' + m.best_price : '暂无'}</div>`
           : (isNight()

@@ -81,36 +81,36 @@ def send_price_alert(email: str, monitor_info: dict, flights: list, analysis: di
         if is_new_low else ""
     )
 
-    # 按“命中心理价 / 行情分达标”的组合选择客观、不绝对的措辞
+    # 按“命中心理价 / 行情分达标”组合选择客观、不绝对的措辞（不替用户下“必买/必跌”结论）
     hit = bool(analysis.get("hit_target"))
     strong = (analysis.get("score") or 0) >= 60
     if hit and strong:
-        title = "同时达到心理价且行情信号支持，可关注入手"
+        title = "达到心理价位且行情相对可关注，请结合行程把握"
         title_color = "#c0392b"
         subject_prefix = "关注入手"
-        tip_line = ("当前裸票价已达到你设定的心理价位，且综合距出行时间、价格位置与趋势后行情支持度较高；"
-                    "机票价格随供需与日期波动，是否下单请结合你的行程自行决定。")
+        tip_line = ("当前裸票价既已达到您的心理预期，综合时间阶段、价格位置与趋势看也处于相对可关注的位置；"
+                    "机票价格仍会随供需波动，建议您结合出行时间自行把握是否购票。")
     elif hit:
-        title = "已达到你设定的心理价位（行情信号偏中性）"
+        title = "已达到您的心理价位，后续仍可能下行"
         title_color = "#e67e22"
-        subject_prefix = "达到心理价"
-        tip_line = ("当前裸票价已不高于你设定的心理价位；但从现有样本与趋势看行情信号偏中性，"
-                    "当前未必处于近期最低点，后续仍可能波动或下行，仅供参考，请结合出行时间自行判断是否入手。")
+        subject_prefix = "达到心理价提醒"
+        tip_line = ("当前裸票价已达到您的心理预期，但我们预估后续价格仍有更低的可能，"
+                    "建议您持续关注并谨慎做出购票决定。")
     elif strong:
-        title = "行情上处于相对可关注价位（未达心理价）"
+        title = "行情相对可关注，虽未达心理价位"
         title_color = "#e67e22"
-        subject_prefix = "行情关注"
-        tip_line = ("当前虽未达到你设定的心理价位，但综合距出行时间、价格位置与趋势，当前处于相对值得关注的区间；"
-                    "后续走势仍存在不确定性，请按你的预算与行程自行权衡。")
+        subject_prefix = "行情关注提醒"
+        tip_line = ("当前裸票价虽未达到您的心理预期，但我们估计后续价格可能不会更低，"
+                    "建议您结合行程及时做出购票决定。")
     else:
         title = "价格出现变化，请留意"
         title_color = "#e67e22"
         subject_prefix = "价格提醒"
-        tip_line = "当前价格出现变化，请结合自身需求与出行时间自行判断。"
+        tip_line = "当前裸票价出现变化，请结合您的需求与出行时间自行判断。"
 
     target_price = analysis.get("target_price")
     target_row = (
-        f'<p style="margin:5px 0; color:#555;">你的心理价位（裸票价口径）：<b>¥{target_price}</b></p>'
+        f'<p style="margin:5px 0; color:#555;">您的心理价位（裸票价口径）：<b>¥{target_price}</b></p>'
         if target_price else ""
     )
 

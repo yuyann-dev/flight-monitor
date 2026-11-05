@@ -15,7 +15,6 @@ from app.rbac import is_owner, is_high_tier
 
 scheduler = AsyncIOScheduler(timezone="Asia/Shanghai")
 
-_round_counter = 0  # 全局轮次计数，用于分级调度
 _batch_lock = asyncio.Lock()  # 防止同一轮采集被重复/并发触发，避免重复消耗飞猪额度
 
 
@@ -367,22 +366,31 @@ async def run_single_monitor(mid: int, manual_refresh: bool = False, allow_varif
 
 
 async def run_monitor_job():
-    """Crawl all active monitors. Owner every 30min, others every 60min (every other round)."""
+    """每30分钟一轮：主人/VIP 每轮采集（约30分钟）；普通用户距上次成功采集满约55分钟才跑（约60分钟）。
+
+    节流基准用持久化的 last_success_at（UTC naive），不依赖进程内轮次计数，
+    服务重启后调度相位不丢失、不会被反复重置；数据源异常不更新成功时间，下一轮会自动重试。
+    """
     # 防重入：上一批还没跑完就跳过，避免重复触发导致飞猪被自己打限流
     if _batch_lock.locked():
         print("[scheduler] skip: previous batch still running")
         return
-    global _round_counter
     async with _batch_lock:
-        _round_counter += 1
-        print(f"[scheduler] batch #{_round_counter} triggered at {datetime.now().isoformat()}")
+        print(f"[scheduler] batch triggered at {datetime.now().isoformat()}")
         db = SessionLocal()
         try:
             monitors = db.query(Monitor).filter(Monitor.is_active == True).all()
+            now_utc = datetime.utcnow()
             for m in monitors:
-                # 主人/VIP 每轮采集（30分钟）；普通用户隔轮（约60分钟）
-                if not is_high_tier(m.owner) and _round_counter % 2 != 0:
+                if is_high_tier(m.owner):
+                    await run_single_monitor(m.id)
                     continue
+                # 普通用户：约60分钟一轮；从未成功过则首轮立即采集
+                if m.last_success_at is not None:
+                    gap_min = (now_utc - m.last_success_at).total_seconds() / 60
+                    if gap_min < 55:
+                        print(f"[scheduler] monitor {m.id} (normal) skipped: last success {gap_min:.0f}min ago (<55min)")
+                        continue
                 await run_single_monitor(m.id)
         finally:
             db.close()
@@ -390,7 +398,7 @@ async def run_monitor_job():
 
 def start_scheduler():
     from apscheduler.triggers.cron import CronTrigger
-    # 白天 7:00-23:59 每30分钟一轮（用户monitor每轮都跑，别人的隔轮=每60分钟）
+    # 白天 7:00-23:59 每30分钟触发一轮：主人/VIP 每轮采集，普通用户约60分钟一轮
     scheduler.add_job(
         run_monitor_job,
         trigger=CronTrigger(minute="*/30", hour="7-23"),
@@ -403,4 +411,4 @@ def start_scheduler():
     # 夜间不跑；不设置 next_run_time，纯按 cron 整点/半点触发，避免重启立即抓
     scheduler.start()
     jobs = scheduler.get_jobs()
-    print(f"[scheduler] started: {len(jobs)} job(s); 白天7-23点每30分钟(用户)/每60分钟(别人), 夜间不跑")
+    print(f"[scheduler] started: {len(jobs)} job(s); 白天7-23点每30分钟触发, 主人/VIP每轮、普通用户约60分钟一轮, 夜间不跑")

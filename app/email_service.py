@@ -91,15 +91,16 @@ def send_price_alert(email: str, monitor_info: dict, flights: list, analysis: di
         if is_new_low else ""
     )
 
-    # 按“命中心理价 / 综合分达标”组合选择具体、客观、不绝对的措辞（不替用户下“必买/必跌”结论）
+    # 命中优先于临期；档位：①命中且高分 ②命中但低分 ③未命中但高分 ④未命中低分但临期；其余不发
     hit = bool(analysis.get("hit_target"))
     strong = (analysis.get("score") or 0) >= 60
+    near = bool(analysis.get("near_deadline"))
     if hit and strong:
-        title = "已达心理价位且当前价格偏低，可结合行程决定"
+        title = "已达心理价位且当前价格偏低，强烈建议购买"
         title_color = "#c0392b"
-        subject_prefix = "关注入手"
+        subject_prefix = "建议购买提醒"
         tip_line = ("当前裸票价已达到您设定的心理预期；结合距出行时间、当前价格在历史价格中的位置以及近期走势看，"
-                    "当前也处于偏低位置。机票价格仍会随供需和日期波动，建议您结合出行时间和预算把握是否购票。")
+                    "当前价格已处于偏低位置，后续继续明显下降的空间可能有限，建议您结合行程和预算适时决定是否购票。")
     elif hit:
         title = "已达到心理价位，后续仍可能下降"
         title_color = "#e67e22"
@@ -107,16 +108,25 @@ def send_price_alert(email: str, monitor_info: dict, flights: list, analysis: di
         tip_line = ("当前裸票价已达到您设定的心理预期；但结合距出行时间、当前价格在历史价格中的位置以及近期走势看，"
                     "当前价格还没有明显处于低位，后续仍可能波动或进一步下降，建议您持续关注、结合出行计划谨慎决定。")
     elif strong:
-        title = "当前价格偏低，虽未达心理价位"
+        title = "当前价格偏低，建议购买"
         title_color = "#e67e22"
-        subject_prefix = "价格偏低提醒"
+        subject_prefix = "建议购买提醒"
         tip_line = ("当前裸票价还没有达到您设定的心理预期；但结合距出行时间、当前价格在历史价格中的位置以及近期走势看，"
                     "当前价格已处于偏低位置，后续继续明显下降的空间可能有限，建议您结合行程和预算适时决定是否购票。")
-    else:
-        title = "裸票价出现变化，请留意"
+    elif near:
+        title = "临近出发，继续等待的降价空间可能有限"
         title_color = "#e67e22"
-        subject_prefix = "价格提醒"
-        tip_line = "当前裸票价出现变化，结合出行时间和近期走势仅供参考，请结合您的需求与出行时间自行判断。"
+        subject_prefix = "建议购买提醒"
+        tip_line = ("当前裸票价尚未达到您的心理预期；但距出发日期已较近，结合历史价格位置与近期走势看，"
+                    "后续大幅下降的空间可能有限，且存在临近涨价可能。请结合行程是否确定与预算权衡，自行把握购票时机。")
+    else:
+        # 双不满足且不临期：不生成提醒（调度层 should=False 已拦截；此处防御性返回，不发兜底邮件）
+        return
+
+    # 创监控以来历史新低时，在邮件主题与大标题前加醒目标签
+    if is_new_low:
+        title = "【历史新低】" + title
+        subject_prefix = "【历史新低】" + subject_prefix
 
     target_price = analysis.get("target_price")
     target_row = (

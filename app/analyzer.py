@@ -200,7 +200,12 @@ def generate_advice(monitor: Monitor, samples: list[PriceSample]) -> dict:
 def should_notify(
     monitor: Monitor, samples: list[PriceSample], current_price: float
 ) -> tuple[bool, str, dict]:
-    """是否发邮件提醒：双触发（命中心理价 或 综合分>=60），无冷却/高位硬拦截。"""
+    """是否发邮件提醒，三支 OR 触发、命中优先、无冷却：
+
+    ① 裸票价命中心理价；② 常规买入倾向综合分 >=60；
+    ③ 未命中且常规分不足，但临近出行并达到“越临近门槛越低”的梯度（中档阈值）。
+    命中/常规达标时不进入临期档；双不满足且不临期则不发。
+    """
     result = _evaluate(monitor, samples, current_price_override=current_price)
     if current_price is None:
         return False, "", {}
@@ -208,10 +213,25 @@ def should_notify(
     hit_target = bool(result.get("hit_target"))
     is_buy_advice = result["advice"] in ("建议考虑购票", "建议尽快购票")
     score = result["buy_score"] if is_buy_advice else 0.0
+    raw_score = result["buy_score"]
+    days_left = int(result.get("days_left") if result.get("days_left") is not None else 30)
     reasons = list(result["reasons"])
 
-    # 双触发：命中心理价，或买入倾向综合分达标；不做冷却/高位硬拦截，避免错过提醒
-    should_alert = hit_target or score >= 60.0
+    # 临期低门槛档：仅在“未命中且常规分不足”时启用；命中走①②，不进临期；
+    # 当天出发因时分取整可能为 -1，纳入兜底；明显已过期（<=-2）不发
+    near_deadline = False
+    if not hit_target and score < 60.0 and days_left >= -1:
+        if days_left <= 1:
+            near_deadline = True  # 当天兜底：本轮拿到真实最低价即提醒
+        elif days_left <= 2 and raw_score >= 20:
+            near_deadline = True
+        elif days_left <= 3 and raw_score >= 40:
+            near_deadline = True
+        elif days_left <= 5 and raw_score >= 55:
+            near_deadline = True
+
+    # 三支 OR；不做冷却/高位硬拦截，避免错过提醒
+    should_alert = hit_target or score >= 60.0 or near_deadline
 
     fees = compute_fees()
     analysis = {
@@ -223,9 +243,10 @@ def should_notify(
         "forecast_price": result["forecast_price"],
         "score": score,
         "hit_target": hit_target,
+        "near_deadline": near_deadline,
+        "days_left": days_left,
         "target_price": monitor.max_price,
         "reason": "；".join(reasons[:4]),
-        "days_left": result["days_left"],
         "advice": result["advice"],
     }
     return should_alert, analysis["reason"], analysis

@@ -4,7 +4,7 @@ from fastapi import FastAPI, Depends, HTTPException, Request, BackgroundTasks
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from app.config import BASE_DIR, settings
 from app.models import init_db, SessionLocal, Monitor, User, PriceSample
 from app.auth import create_login_code, send_code_email, login_with_code, verify_token, code_cooldown_seconds
@@ -454,6 +454,18 @@ async def monitor_refresh(mid: int, user: User = Depends(get_current_user)):
     return {"ok": True, "refresh_left": 10 - used - 1}
 
 
+_CST = timezone(timedelta(hours=8))
+
+
+def _fmt_cst(dt):
+    """数据库按 UTC naive 存储，统一格式化为北京时间展示，避免前端直接截字符串错位。"""
+    if not dt:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(_CST).strftime("%Y-%m-%d %H:%M")
+
+
 # ── 管理员：用户与角色（仅系统主人）──
 @app.get("/api/admin/users")
 async def admin_list_users(user: User = Depends(get_current_user)):
@@ -471,7 +483,7 @@ async def admin_list_users(user: User = Depends(get_current_user)):
                 "id": u.id,
                 "email": u.email,
                 "role": role_of(u),
-                "created_at": u.created_at.isoformat() if u.created_at else None,
+                "created_at": _fmt_cst(u.created_at),
                 "monitor_count": total,
                 "active_count": active,
             })
@@ -496,6 +508,54 @@ async def admin_set_role(uid: int, body: RoleUpdate, user: User = Depends(get_cu
         target.role = body.role
         db.commit()
         return {"ok": True, "id": target.id, "role": role_of(target)}
+    finally:
+        db.close()
+
+
+@app.get("/api/admin/users/{uid}/monitors")
+async def admin_user_monitors(uid: int, user: User = Depends(get_current_user)):
+    """主人查看指定用户名下的监控任务明细（只读，不修改角色）。"""
+    if not is_owner(user):
+        raise HTTPException(status_code=403, detail="无管理员权限")
+    db = SessionLocal()
+    try:
+        target = db.query(User).filter(User.id == uid).first()
+        if not target:
+            raise HTTPException(status_code=404, detail="用户不存在")
+        rows = (
+            db.query(Monitor)
+            .filter(Monitor.user_id == uid)
+            .order_by(Monitor.is_active.desc(), Monitor.id.asc())
+            .all()
+        )
+        out = []
+        for m in rows:
+            last = (
+                db.query(PriceSample)
+                .filter(PriceSample.monitor_id == m.id)
+                .order_by(PriceSample.checked_at.desc())
+                .first()
+            )
+            date_range = (
+                f"{m.departure_date_start} ~ {m.departure_date_end}"
+                if m.departure_date_end and m.departure_date_end != m.departure_date_start
+                else m.departure_date_start
+            )
+            out.append({
+                "id": m.id,
+                "route": f"{m.departure_city}→{m.arrival_city}",
+                "date_range": date_range,
+                "target_price": m.max_price,
+                "active": bool(m.is_active),
+                "direct_only": bool(m.direct_only),
+                "baggage_required": bool(m.baggage_required),
+                "latest_price": last.best_price if last else None,
+                "platform": last.best_platform if last else None,
+                "best_price_ever": m.best_price_ever,
+                "last_success_at": _fmt_cst(m.last_success_at),
+                "created_at": _fmt_cst(m.created_at),
+            })
+        return out
     finally:
         db.close()
 

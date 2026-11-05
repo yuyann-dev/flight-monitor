@@ -31,7 +31,8 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
 /* App */
 .app-header { background: #fff; padding: 16px 32px; box-shadow: 0 1px 4px rgba(0,0,0,0.06); display: flex; justify-content: space-between; align-items: center; }
 .app-header h1 { font-size: 20px; color: #4A90D9; }
-.app-header .user-info { font-size: 14px; color: #666; }
+.app-header .user-info { font-size: 14px; color: #666; display: flex; align-items: center; }
+#adminBtn { color: #8e44ad; }
 .container { max-width: 1100px; margin: 24px auto; padding: 0 16px; }
 
 .card { background: #fff; border-radius: 12px; padding: 24px; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.04); }
@@ -140,23 +141,27 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
     <h1>机票监控</h1>
     <div class="user-info">
       <span id="userEmail"></span>
+      <button id="adminBtn" class="btn btn-outline btn-sm hidden" onclick="toggleAdminPanel()" style="margin-left:12px;color:#8e44ad;">用户管理</button>
       <button class="btn btn-outline btn-sm" onclick="logout()" style="margin-left:12px">退出</button>
     </div>
   </div>
   <div class="container">
+
+    <!-- 用户管理折叠面板（仅主人；由顶部“用户管理”按钮展开/收起） -->
+    <div class="card hidden" id="adminCard" style="margin-top:16px; border-left:3px solid #8e44ad;">
+      <div style="display:flex; justify-content:space-between; align-items:center; gap:12px;">
+        <h2 style="margin:0; font-size:16px;">用户管理 <small style="font-size:12px;color:#999;font-weight:normal;">仅管理员可见 · 切换普通用户 / VIP 待遇</small></h2>
+        <button class="btn btn-outline btn-sm" onclick="toggleAdminPanel()">收起</button>
+      </div>
+      <p style="font-size:12px;color:#888;margin:10px 0 12px;">VIP 待遇：飞猪手动刷新不限次、自动采集每 30 分钟一轮；飞常准备用源仍仅主人本人可用。</p>
+      <div id="adminUserList"></div>
+    </div>
 
     <!-- Monitor List (上) -->
     <div class="card" id="monitorListCard">
       <h2>我的监控</h2>
       <div id="listNightTip" style="display:none; background:#eef2f7; color:#5a6b7b; padding:10px 14px; border-radius:8px; font-size:12px; margin-bottom:12px; line-height:1.6;"></div>
       <div id="monitorList"></div>
-    </div>
-
-    <!-- Admin Panel（仅主人可见，由 applyAdminVisibility 控制） -->
-    <div class="card hidden" id="adminCard" style="margin-top:20px;">
-      <h2>用户管理 <small style="font-size:12px;color:#999;font-weight:normal;">仅管理员可见 · 切换普通用户 / VIP 待遇</small></h2>
-      <p style="font-size:12px;color:#888;margin:6px 0 12px;">VIP 待遇：飞猪手动刷新不限次、自动采集每 30 分钟一轮；飞常准备用源仍仅主人本人可用。</p>
-      <div id="adminUserList"></div>
     </div>
 
     <!-- New Monitor Form (下) -->
@@ -380,17 +385,29 @@ function showLogin() {
   document.getElementById('appPage').classList.add('hidden');
 }
 function applyAdminVisibility() {
+  const btn = document.getElementById('adminBtn');
+  if (btn) {
+    if (me.is_owner) btn.classList.remove('hidden');
+    else btn.classList.add('hidden');
+  }
+  // 面板默认收起，仅由 toggleAdminPanel 展开；非主人/退出时强制收起
+  const card = document.getElementById('adminCard');
+  if (card && !me.is_owner) card.classList.add('hidden');
+}
+let adminLoaded = false;
+async function toggleAdminPanel() {
   const card = document.getElementById('adminCard');
   if (!card) return;
-  if (me.is_owner) card.classList.remove('hidden');
-  else card.classList.add('hidden');
+  if (!card.classList.contains('hidden')) { card.classList.add('hidden'); return; }
+  card.classList.remove('hidden');
+  if (!adminLoaded) { adminLoaded = true; await loadAdminUsers(); }
+  window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 function showApp() {
   document.getElementById('loginPage').classList.add('hidden');
   document.getElementById('appPage').classList.remove('hidden');
   isDetailView = false;
   applyAdminVisibility();
-  if (me.is_owner) loadAdminUsers();
   loadMonitors();
 }
 
@@ -425,6 +442,8 @@ async function verifyCode() {
 async function logout() {
   try { await api('/api/auth/logout', {method:'POST'}); } catch(e) { /* 退出本地态即可 */ }
   me = { email: "", role: "normal", is_owner: false, is_vip: false };
+  adminLoaded = false;
+  const ac = document.getElementById('adminCard'); if (ac) ac.classList.add('hidden');
   applyAdminVisibility();
   showLogin();
 }
@@ -442,18 +461,22 @@ async function loadAdminUsers() {
         : u.role === 'vip'
           ? '<span style="color:#8e44ad;font-weight:bold;">VIP</span>'
           : '<span style="color:#888;">普通用户</span>';
-      const op = u.role === 'owner'
+      const roleOp = u.role === 'owner'
         ? '<span style="color:#bbb;font-size:12px;">不可修改</span>'
         : u.role === 'vip'
           ? `<button class="btn btn-outline btn-sm" onclick="setUserRole(${u.id},'normal')">降为普通</button>`
           : `<button class="btn btn-primary btn-sm" onclick="setUserRole(${u.id},'vip')">设为 VIP</button>`;
-      const reg = u.created_at ? String(u.created_at).slice(0, 16).replace('T', ' ') : '--';
-      return `<tr style="border-bottom:1px solid #eee;">
+      const taskBtn = `<button class="btn btn-outline btn-sm" onclick="toggleUserTasks(${u.id}, this)" style="margin-right:6px;">查看任务</button>`;
+      const reg = u.created_at || '--';
+      const mainRow = `<tr style="border-bottom:1px solid #eee;">
         <td style="padding:9px 8px;">${esc(u.email)}</td>
         <td style="padding:9px 8px;">${badge}</td>
         <td style="padding:9px 8px;color:#666;">${esc(reg)}</td>
         <td style="padding:9px 8px;">${u.monitor_count}（活跃 ${u.active_count}）</td>
-        <td style="padding:9px 8px;">${op}</td></tr>`;
+        <td style="padding:9px 8px;white-space:nowrap;">${taskBtn}${roleOp}</td></tr>`;
+      const detailRow = `<tr class="utask-row" data-uid="${u.id}" style="display:none;">
+        <td colspan="5" style="padding:0 8px 10px;"><div id="utask-${u.id}" style="background:#faf8fc;border-radius:8px;padding:10px 12px;font-size:13px;">加载中…</div></td></tr>`;
+      return mainRow + detailRow;
     }).join('');
     el.innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:14px;">
       <thead><tr style="background:#f5f7fa;text-align:left;">
@@ -463,6 +486,52 @@ async function loadAdminUsers() {
   } catch(err) {
     el.innerHTML = '<div class="empty">用户列表加载失败: ' + esc(err.message) + '</div>';
   }
+}
+async function toggleUserTasks(uid, btn) {
+  const row = document.querySelector(`.utask-row[data-uid="${uid}"]`);
+  if (!row) return;
+  if (row.style.display !== 'none') {
+    row.style.display = 'none';
+    if (btn) btn.textContent = '查看任务';
+    return;
+  }
+  row.style.display = '';
+  if (btn) btn.textContent = '收起任务';
+  const box = document.getElementById(`utask-${uid}`);
+  if (!box || box.dataset.loaded) return;
+  box.dataset.loaded = '1';
+  try {
+    const list = await api(`/api/admin/users/${uid}/monitors`);
+    renderUserTasks(box, list);
+  } catch(e) {
+    box.textContent = '任务加载失败: ' + e.message;
+  }
+}
+function renderUserTasks(box, list) {
+  if (!list || !list.length) {
+    box.innerHTML = '<span style="color:#999;">暂无监控任务</span>';
+    return;
+  }
+  const head = '<table style="width:100%;border-collapse:collapse;"><thead><tr style="color:#888;font-size:12px;text-align:left;">'
+    + '<th style="padding:4px 6px;">航线</th><th style="padding:4px 6px;">日期</th><th style="padding:4px 6px;">心理价</th>'
+    + '<th style="padding:4px 6px;">当前裸票</th><th style="padding:4px 6px;">历史最低</th><th style="padding:4px 6px;">状态</th>'
+    + '<th style="padding:4px 6px;">最近成功采集</th></tr></thead><tbody>';
+  const body = list.map(t => {
+    const price = t.latest_price != null ? '¥' + t.latest_price : '--';
+    const ever = t.best_price_ever != null ? '¥' + t.best_price_ever : '--';
+    const target = t.target_price != null ? '¥' + t.target_price : '不限';
+    const st = t.active ? '<span style="color:#27ae60;">监控中</span>' : '<span style="color:#999;">已停止</span>';
+    const flags = (t.direct_only ? '直飞 ' : '') + (t.baggage_required ? '含免费行李' : '');
+    return `<tr style="border-top:1px dashed #e5e0ee;">
+      <td style="padding:6px;">${esc(t.route)}<div style="color:#aaa;font-size:11px;">${esc(flags)}</div></td>
+      <td style="padding:6px;color:#555;">${esc(t.date_range)}</td>
+      <td style="padding:6px;">${esc(target)}</td>
+      <td style="padding:6px;color:#e74c3c;font-weight:bold;">${esc(price)}</td>
+      <td style="padding:6px;color:#27ae60;">${esc(ever)}</td>
+      <td style="padding:6px;">${st}</td>
+      <td style="padding:6px;color:#888;font-size:12px;">${esc(t.last_success_at || '暂无')}</td></tr>`;
+  }).join('');
+  box.innerHTML = head + body + '</tbody></table>';
 }
 async function setUserRole(uid, role) {
   try {

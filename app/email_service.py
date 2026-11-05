@@ -1,16 +1,26 @@
 """Email service: verification codes and price alerts."""
 import smtplib
+from email.header import Header
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from email.utils import formataddr
 from app.config import settings
 from app.airlines import baggage_text
+
+# 收件箱展示的发件人名称（软件名）；SMTP 信封投递地址仍用认证邮箱 smtp_user，不随显示名改变
+APP_SENDER_NAME = "机票监控"
+
+
+def _sender_header() -> str:
+    """构造 From 头：显示名为软件名，路由/投递地址为认证发件邮箱。"""
+    return formataddr((str(Header(APP_SENDER_NAME, "utf-8")), settings.smtp_user))
 
 
 def send_email(to_addr: str, subject: str, html_body: str):
     """通过 SMTP SSL 发送 HTML 邮件。"""
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
-    msg["From"] = settings.smtp_from or settings.smtp_user
+    msg["From"] = _sender_header()
     msg["To"] = to_addr
     msg.attach(MIMEText(html_body, "html", "utf-8"))
 
@@ -24,7 +34,7 @@ def send_verification_code(email: str, code: str):
     body = f"您的登录验证码：{code}\n\n验证码10分钟内有效，请勿泄露给他人。"
     msg = MIMEText(body, "plain", "utf-8")
     msg["Subject"] = f"登录验证码 {code}"
-    msg["From"] = settings.smtp_user
+    msg["From"] = _sender_header()
     msg["To"] = email
     with smtplib.SMTP_SSL(settings.smtp_host, settings.smtp_port) as server:
         server.login(settings.smtp_user, settings.smtp_password)

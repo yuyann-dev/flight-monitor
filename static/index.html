@@ -42,7 +42,15 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
 .form-row { display: flex; gap: 12px; align-items: center; }
 
 /* Monitor list */
-.monitor-item { border: 1px solid #eee; border-radius: 10px; padding: 16px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; }
+.monitor-item { border: 1px solid #eee; border-radius: 10px; padding: 16px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+.monitor-main { flex: 1 1 auto; min-width: 0; }
+.monitor-side { flex: 0 0 250px; text-align: right; align-self: center; }
+.monitor-side .side-title { font-size: 12px; color: #999; }
+.monitor-side .side-price { font-size: 22px; font-weight: bold; color: #e74c3c; line-height: 1.25; }
+.monitor-side .side-sub { font-size: 12px; color: #999; margin-top: 2px; }
+.monitor-side .side-msg { font-size: 13px; line-height: 1.5; }
+.monitor-side .side-msg small { display: block; color: #999; font-size: 12px; margin-top: 2px; }
+.monitor-action { flex: 0 0 auto; align-self: center; }
 .monitor-route { font-size: 16px; font-weight: 600; }
 .monitor-meta { font-size: 13px; color: #999; margin-top: 4px; }
 .monitor-price { font-size: 22px; font-weight: bold; color: #e74c3c; }
@@ -94,6 +102,8 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
   .card { padding: 16px; }
   .form-grid { grid-template-columns: 1fr; }
   .monitor-item { flex-direction: column; align-items: flex-start; gap: 10px; }
+  .monitor-side { flex: 1 1 auto; width: 100%; text-align: left; }
+  .monitor-action { align-self: flex-start; }
   .form-row { flex-direction: column; align-items: flex-start; gap: 8px; }
   .stat-grid { grid-template-columns: repeat(2, 1fr) !important; }
 }
@@ -372,7 +382,7 @@ async function loadMonitors() {
   if (!list.length) { el.innerHTML = '<div class="empty">暂无监控任务，下方新建一个吧</div>'; return; }
   el.innerHTML = list.map(m => `
     <div class="monitor-item" onclick="showDetail(${m.id})" style="cursor:pointer;">
-      <div>
+      <div class="monitor-main">
         <div class="monitor-route">${m.departure_city} → ${m.arrival_city}</div>
         <div class="monitor-meta">
           ${m.departure_date_start}${m.departure_date_end !== m.departure_date_start ? ' ~ ' + m.departure_date_end : ''}
@@ -380,17 +390,20 @@ async function loadMonitors() {
           ${m.last_checked ? ' · 最近更新 ' + formatTime(m.last_checked) : ''}
         </div>
       </div>
-      <div style="text-align:left">
-        ${m.latest_price ? `<div style="font-size:12px; color:#999;">当前最低</div><div style="font-size:20px; font-weight:bold; color:#e74c3c;">¥${m.latest_price}</div><small style="color:#999;">历史最低 ¥${m.best_price}</small>`
+      <div class="monitor-side">
+        ${m.latest_price ? `
+          <div class="side-title">当前最低</div>
+          <div class="side-price">¥${m.latest_price}</div>
+          <div class="side-sub">历史最低 ${m.best_price != null ? '¥' + m.best_price : '暂无'}</div>`
           : (isNight()
-            ? '<div style="color:#5a6b7b; font-size:13px;">夜间暂停自动更新<br><small style="color:#999;">点进详情可手动刷新</small></div>'
+            ? '<div class="side-msg" style="color:#5a6b7b;">夜间暂停自动更新<small>点进详情可手动刷新</small></div>'
             : m.stale
-              ? '<div style="color:#e67e22; font-size:13px;">飞猪渠道暂未返回<br><small style="color:#999;">该航线本次无有效航班，自动重试中；未沿用历史价格</small></div>'
+              ? '<div class="side-msg" style="color:#e67e22;">飞猪渠道暂未返回<small>该航线本次无有效航班，自动重试中；未沿用历史价格</small></div>'
               : m.no_match
-                ? '<div style="color:#5a6b7b; font-size:13px;">暂无符合条件航班<br><small style="color:#999;">数据源正常，可放宽筛选</small></div>'
-                : '<div style="color:#aaa">采集中...</div>')}
+                ? '<div class="side-msg" style="color:#5a6b7b;">暂无符合条件航班<small>数据源正常，可放宽筛选</small></div>'
+                : '<div class="side-msg" style="color:#aaa;">采集中...</div>')}
       </div>
-      <button class="btn btn-danger btn-sm" onclick="event.stopPropagation(); stopMonitor(${m.id})">停止</button>
+      <button class="btn btn-danger btn-sm monitor-action" onclick="event.stopPropagation(); stopMonitor(${m.id})">停止</button>
     </div>
   `).join('');
   renderNightTips();

@@ -374,6 +374,13 @@ async def monitor_latest_detail(mid: int, user: User = Depends(get_current_user)
             f for f in (sample.flight_detail or [])
             if (f.get("flight_no"), f.get("date")) not in excluded
         ]
+        # 行李文案/类别在采集时固化过；展示层按最新航司规则实时重算，
+        # 避免历史样本沿用旧的“以购买页为准”中性文案（只改展示文本，不改变入选与价格）
+        from app.airlines import classify, baggage_text
+        for f in flights:
+            airline = f.get("airline", "") or ""
+            f["airline_category"] = classify(airline)
+            f["baggage_text"] = baggage_text(airline)
         return {"flights": flights, "fees": fees}
     finally:
         db.close()

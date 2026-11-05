@@ -10,27 +10,88 @@
 （Google/Hopper 等统计差异仅约 2% 且不具统计显著性），或规则会随时间变化，
 为保证客观性与可解释性，本引擎不采用这些规则。
 """
+import math
 from datetime import datetime, timedelta
 from app.models import PriceSample, Monitor
 from app.config import settings
 
 
-# ── 费用 ──
-def compute_fees(distance_km: int | None = None) -> dict:
-    """计算机建燃油附加费。
+# ── 费用（成人国内航线：民航发展基金 + 燃油附加费参考值）──
+# 常用城市经纬度（近似值，仅用于 800km 里程二分，不用于票价预测）。
+# 官方燃油标准按航段里程：>800km 为长途档，<=800km 为短途档；标准由航司按月公布，
+# 常量值需随官方调价更新（见 app/config.py 的 fuel_surcharge_short/long）。
+CITY_COORDS: dict[str, tuple[float, float]] = {
+    "合肥": (31.784, 117.302), "成都": (30.573, 104.066), "北京": (39.904, 116.407),
+    "上海": (31.230, 121.473), "广州": (23.129, 113.264), "深圳": (22.543, 114.058),
+    "重庆": (29.563, 106.551), "西安": (34.341, 108.939), "杭州": (30.274, 120.155),
+    "昆明": (25.039, 102.718), "三亚": (18.252, 109.512), "海口": (20.044, 110.199),
+    "乌鲁木齐": (43.825, 87.617), "拉萨": (29.652, 91.172), "南京": (32.060, 118.797),
+    "武汉": (30.593, 114.305), "长沙": (28.228, 112.939), "青岛": (36.067, 120.383),
+    "大连": (38.914, 121.614), "厦门": (24.479, 118.089), "福州": (26.075, 119.296),
+    "天津": (39.343, 117.362), "郑州": (34.747, 113.625), "贵阳": (26.647, 106.630),
+    "兰州": (36.061, 103.834), "西宁": (36.617, 101.778), "银川": (38.487, 106.230),
+    "呼和浩特": (40.842, 111.749), "沈阳": (41.805, 123.431), "长春": (43.817, 125.323),
+    "哈尔滨": (45.803, 126.534), "南昌": (28.682, 115.858), "南宁": (22.817, 108.366),
+    "珠海": (22.271, 113.576), "宁波": (29.868, 121.544), "温州": (27.994, 120.699),
+    "桂林": (25.274, 110.290), "丽江": (26.872, 100.229), "太原": (37.871, 112.549),
+    "石家庄": (38.042, 114.514), "济南": (36.651, 117.120), "泸州": (28.870, 105.443),
+    "南充": (30.837, 106.082), "西昌": (27.892, 102.265), "景洪": (22.009, 100.797),
+}
 
-    没有可靠航线距离时按长途（800km 以上）保守计算，
-    避免低估用户实际支付的总价。
-    """
-    fuel = (
-        settings.fuel_surcharge_long
-        if (distance_km or 0) > settings.short_haul_threshold_km
-        else settings.fuel_surcharge_short
+
+def _norm_city(name: str | None) -> str:
+    if not name:
+        return ""
+    return str(name).strip().replace("市", "").replace(" ", "")
+
+
+def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    earth_r = 6371.0
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    d_phi = math.radians(lat2 - lat1)
+    d_lam = math.radians(lon2 - lon1)
+    a = (
+        math.sin(d_phi / 2) ** 2
+        + math.cos(p1) * math.cos(p2) * math.sin(d_lam / 2) ** 2
     )
+    return 2 * earth_r * math.asin(math.sqrt(a))
+
+
+def _route_distance_km(departure: str | None, arrival: str | None) -> float | None:
+    """用城市坐标估算大圆里程；任一城市未收录则返回 None，交由调用方保守处理。"""
+    dep, arr = _norm_city(departure), _norm_city(arrival)
+    if dep not in CITY_COORDS or arr not in CITY_COORDS:
+        return None
+    lat1, lon1 = CITY_COORDS[dep]
+    lat2, lon2 = CITY_COORDS[arr]
+    return _haversine_km(lat1, lon1, lat2, lon2)
+
+
+def compute_fees(
+    distance_km: float | None = None,
+    departure: str | None = None,
+    arrival: str | None = None,
+) -> dict:
+    """计算机建（民航发展基金）与燃油附加费参考值。
+
+    燃油按航段里程二分：>800km 用长途标准，否则用短途标准。
+    距离来源优先级：显式传入 distance_km > 出发/到达城市坐标估算；
+    都无法确定时按长途保守取值，避免低估用户实际支付的含税总价。
+    机建费成人国内干线统一按配置值（默认 50 元），支线减免不在本模型内细分。
+    """
+    dist = distance_km
+    if dist is None and departure and arrival:
+        dist = _route_distance_km(departure, arrival)
+
+    long_haul = True if dist is None else dist > settings.short_haul_threshold_km
+    fuel = settings.fuel_surcharge_long if long_haul else settings.fuel_surcharge_short
+    airport = settings.airport_construction_fee
     return {
-        "airport_fee": settings.airport_construction_fee,
+        "airport_fee": airport,
         "fuel_fee": fuel,
-        "total_fee": settings.airport_construction_fee + fuel,
+        "total_fee": airport + fuel,
+        "long_haul": long_haul,
+        "distance_km": round(dist) if dist is not None else None,
     }
 
 
@@ -167,7 +228,7 @@ def _evaluate(monitor: Monitor, samples: list[PriceSample],
     else:
         advice = "建议继续观察"
 
-    fees = compute_fees()
+    fees = compute_fees(departure=monitor.departure_city, arrival=monitor.arrival_city)
     return {
         "advice": advice,
         "reasons": reasons,
@@ -233,7 +294,7 @@ def should_notify(
     # 三支 OR；不做冷却/高位硬拦截，避免错过提醒
     should_alert = hit_target or score >= 60.0 or near_deadline
 
-    fees = compute_fees()
+    fees = compute_fees(departure=monitor.departure_city, arrival=monitor.arrival_city)
     analysis = {
         "best_price": current_price,
         "total_price": result["total_price"],

@@ -40,6 +40,27 @@ def send_code_email(email: str, code: str):
     send_verification_code(email, code)
 
 
+def code_cooldown_seconds(email: str, window: int = 60) -> int:
+    """距离最近一条验证码还剩多少秒处于发送冷却期；返回 0 表示允许立即发送。
+
+    无论旧码是否已使用，短时间内对同一邮箱重复下发都应限流，避免被刷发信。
+    """
+    db = SessionLocal()
+    try:
+        last = (
+            db.query(EmailCode)
+            .filter(EmailCode.email == email)
+            .order_by(EmailCode.created_at.desc())
+            .first()
+        )
+        if not last or not last.created_at:
+            return 0
+        elapsed = (datetime.utcnow() - last.created_at).total_seconds()
+        return max(0, int(window - elapsed))
+    finally:
+        db.close()
+
+
 def login_with_code(email: str, code: str) -> tuple[str, User] | None:
     db = SessionLocal()
     try:

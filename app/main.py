@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from datetime import datetime
 from app.config import BASE_DIR, settings
 from app.models import init_db, SessionLocal, Monitor, User, PriceSample
-from app.auth import create_login_code, send_code_email, login_with_code, verify_token
+from app.auth import create_login_code, send_code_email, login_with_code, verify_token, code_cooldown_seconds
 from app.scheduler import start_scheduler
 
 app = FastAPI(title="Flight Monitor")
@@ -84,6 +84,9 @@ async def health():
 # ── 认证路由 ──
 @app.post("/api/auth/send-code")
 async def send_code(req: LoginRequest, background: BackgroundTasks):
+    wait = code_cooldown_seconds(req.email, 60)
+    if wait > 0:
+        raise HTTPException(status_code=429, detail=f"验证码发送过于频繁，请 {wait} 秒后再试")
     code = create_login_code(req.email)
     # 后台发邮件，避免阻塞响应
     background.add_task(send_code_email, req.email, code)
@@ -98,7 +101,7 @@ async def verify(req: VerifyRequest):
     from fastapi.responses import JSONResponse
     token, user = result
     resp = JSONResponse(content={"ok": True, "email": user.email})
-    resp.set_cookie("token", token, max_age=30 * 24 * 3600, httponly=True, samesite="lax")
+    resp.set_cookie("token", token, max_age=30 * 24 * 3600, httponly=True, secure=True, samesite="lax")
     return resp
 
 

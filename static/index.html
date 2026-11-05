@@ -229,7 +229,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
         <button class="btn btn-outline btn-sm" onclick="backToList()">← 返回列表</button>
         <div style="display: flex; gap: 8px;">
-          <button class="btn btn-primary btn-sm" onclick="refreshDetail()">立即刷新</button>
+          <button class="btn btn-primary btn-sm" onclick="refreshDetail(event)">立即刷新</button>
           <button class="btn btn-danger btn-sm" onclick="stopMonitor(currentMonitorId)">停止监控</button>
         </div>
       </div>
@@ -288,13 +288,40 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
 
 <script>
 const API = '/flight';
-let currentFees = { total_fee: 190 };
+let currentFees = null;
 let currentMonitor = null;
 
 async function api(path, opts={}) {
   const res = await fetch(API + path, { credentials: 'include', headers: {'Content-Type':'application/json'}, cache: 'no-store', ...opts });
-  if (res.status === 401) { showLogin(); throw new Error('unauthorized'); }
+  if (res.status === 401) { showLogin(); throw new Error('登录已失效，请重新登录'); }
+  if (!res.ok) {
+    let msg = '请求失败（HTTP ' + res.status + '）';
+    try {
+      const body = await res.json();
+      if (body && (body.detail || body.msg)) msg = body.detail || body.msg;
+    } catch (e) { /* 非 JSON 响应，保留默认提示 */ }
+    throw new Error(msg);
+  }
   return res.json();
+}
+
+// 面向文本节点的 HTML 转义，防止上游字段中的引号/尖括号被当作标签解析
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[c]));
+}
+// 外链协议白名单：仅放行 http/https，拦截 javascript:/data: 等伪协议
+function safeUrl(u) {
+  if (!u || typeof u !== 'string') return '';
+  return /^https?:\/\//i.test(u.trim()) ? u.trim() : '';
+}
+// 心理价位：空值→null；仅接受正数，拦截 0、负数与非数字
+function parsePrice(v) {
+  const t = (v == null ? '' : String(v)).trim();
+  if (!t) return null;
+  const n = Number(t);
+  return Number.isFinite(n) && n > 0 ? Math.round(n) : null;
 }
 
 function toast(msg) {
@@ -318,7 +345,9 @@ function formatHM(isoStr) {
 }
 
 function formatTime(isoStr) {
+  if (!isoStr) return '--';
   const d = new Date(isoStr);
+  if (isNaN(d.getTime())) return String(isoStr).slice(0, 16);
   return `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
 }
 
@@ -352,24 +381,32 @@ function showApp() {
 async function sendCode() {
   const email = document.getElementById('loginEmail').value.trim();
   if (!email) return toast('请输入邮箱');
-  await api('/api/auth/send-code', {method:'POST', body: JSON.stringify({email})});
-  document.getElementById('loginStep1').classList.add('hidden');
-  document.getElementById('loginStep2').classList.remove('hidden');
-  toast('验证码已发送');
+  try {
+    const res = await api('/api/auth/send-code', {method:'POST', body: JSON.stringify({email})});
+    document.getElementById('loginStep1').classList.add('hidden');
+    document.getElementById('loginStep2').classList.remove('hidden');
+    toast((res && res.msg) || '验证码已发送');
+  } catch(err) {
+    toast('验证码发送失败: ' + err.message);
+  }
 }
 
 async function verifyCode() {
   const email = document.getElementById('loginEmail').value.trim();
   const code = document.getElementById('loginCode').value.trim();
-  const res = await api('/api/auth/verify', {method:'POST', body: JSON.stringify({email, code})});
-  if (res.ok) {
-    document.getElementById('userEmail').textContent = email;
-    showApp();
+  try {
+    const res = await api('/api/auth/verify', {method:'POST', body: JSON.stringify({email, code})});
+    if (res.ok) {
+      document.getElementById('userEmail').textContent = email;
+      showApp();
+    }
+  } catch(err) {
+    toast('登录失败: ' + err.message);
   }
 }
 
 async function logout() {
-  await api('/api/auth/logout', {method:'POST'});
+  try { await api('/api/auth/logout', {method:'POST'}); } catch(e) { /* 退出本地态即可 */ }
   showLogin();
 }
 
@@ -377,9 +414,10 @@ let currentMonitorId = null;
 let priceChart = null;
 
 async function loadMonitors() {
-  const list = await api('/api/monitors');
   const el = document.getElementById('monitorList');
-  if (!list.length) { el.innerHTML = '<div class="empty">暂无监控任务，下方新建一个吧</div>'; return; }
+  try {
+  const list = await api('/api/monitors');
+  if (!list.length) { el.innerHTML = '<div class="empty">暂无监控任务，下方新建一个吧</div>'; renderNightTips(); return; }
   el.innerHTML = list.map(m => `
     <div class="monitor-item" onclick="showDetail(${m.id})" style="cursor:pointer;">
       <div class="monitor-main">
@@ -406,6 +444,9 @@ async function loadMonitors() {
       <button class="btn btn-danger btn-sm monitor-action" onclick="event.stopPropagation(); stopMonitor(${m.id})">停止</button>
     </div>
   `).join('');
+  } catch(err) {
+    el.innerHTML = '<div class="empty">加载监控列表失败: ' + esc(err.message) + '</div>';
+  }
   renderNightTips();
 }
 
@@ -469,10 +510,9 @@ async function excludeFlight(flightNo, date) {
   }
 }
 
-async function refreshDetail() {
-  const btn = event.target;
-  btn.disabled = true;
-  btn.textContent = '正在抓取...';
+async function refreshDetail(e) {
+  const btn = e && (e.currentTarget || e.target);
+  if (btn) { btn.disabled = true; btn.textContent = '正在抓取...'; }
   try {
     const res = await api(`/api/monitors/${currentMonitorId}/refresh`, {method: 'POST'});
     if (res.ok === false) {
@@ -485,33 +525,35 @@ async function refreshDetail() {
     if (res.refresh_left !== undefined) msg += `，今日手动刷新剩${res.refresh_left}次`;
     if (res.note) msg += `（${res.note}）`;
     toast(msg);
-  } catch(e) {
-    toast('刷新失败: ' + e.message);
+  } catch(err) {
+    toast('刷新失败: ' + err.message);
   } finally {
-    btn.disabled = false;
-    btn.textContent = '立即刷新';
+    if (btn) { btn.disabled = false; btn.textContent = '立即刷新'; }
   }
 }
 
 async function loadDetail(mid) {
   renderNightTips();
-  // 飞猪限流状态提示
+  // 飞猪限流状态提示（挂载到真实存在的详情卡片容器）
   try {
     const st = await api('/api/system/status');
     let banner = document.getElementById('fliggyBanner');
-    if (st.fliggy_limited) {
+    const host = document.getElementById('monitorDetailCard');
+    if (st.fliggy_limited && host) {
       if (!banner) {
         banner = document.createElement('div');
         banner.id = 'fliggyBanner';
-        banner.style.cssText = 'background:#fff3cd;color:#856404;padding:10px 16px;margin:8px 16px;border-radius:8px;font-size:13px;';
-        document.getElementById('detailView').insertBefore(banner, document.getElementById('detailView').firstChild);
+        banner.style.cssText = 'background:#fff3cd;color:#856404;padding:10px 16px;margin-bottom:12px;border-radius:8px;font-size:13px;';
+        host.insertBefore(banner, host.firstChild);
       }
-      banner.innerHTML = '飞猪今日免费查询额度已用完，自动采集将等额度恢复；手动刷新时可尝试备用数据源飞常准。';
+      banner.textContent = '飞猪今日免费查询额度已用完，自动采集将等额度恢复；手动刷新时可尝试备用数据源飞常准。';
       banner.style.display = '';
     } else if (banner) {
       banner.style.display = 'none';
     }
-  } catch(e) {}
+  } catch(err) {
+    console.warn('获取数据源状态失败:', err);
+  }
 
   const list = await api('/api/monitors');
   const m = list.find(x => x.id === mid);
@@ -535,12 +577,19 @@ async function loadDetail(mid) {
   const labels = history.map(h => formatTime(h.time));
   const prices = history.map(h => h.price);
 
-  // 购买建议：后端引擎，前端只展示
+  // 购买建议：后端引擎，前端只展示；理由用 textContent 渲染，避免注入
   const adviceData = await api(`/api/monitors/${mid}/advice`);
-  let adviceReason = adviceData.reasons.join('<br>');
-  adviceReason += `<br><span style="font-size:11px; color:#999; margin-top:4px; display:inline-block;">注：以上为基于历史数据的统计判断，实际价格受节假日、供需等因素影响，仅供参考</span>`;
-  document.getElementById('buyAdvice').textContent = adviceData.advice;
-  document.getElementById('buyAdviceReason').innerHTML = adviceReason;
+  document.getElementById('buyAdvice').textContent = adviceData.advice || '';
+  const reasonBox = document.getElementById('buyAdviceReason');
+  reasonBox.textContent = '';
+  (adviceData.reasons || []).forEach((r, i) => {
+    if (i > 0) reasonBox.appendChild(document.createElement('br'));
+    reasonBox.appendChild(document.createTextNode(r));
+  });
+  const note = document.createElement('div');
+  note.style.cssText = 'font-size:11px; color:#999; margin-top:4px;';
+  note.textContent = '注：以上为基于历史数据的统计判断，实际价格受节假日、供需等因素影响，仅供参考';
+  reasonBox.appendChild(note);
 
   // 折线图：Chart.js 加载失败也不阻断机建燃油与航班列表渲染
   try {
@@ -581,8 +630,8 @@ async function loadDetail(mid) {
   flightsEl.innerHTML = '<div style="text-align:center; color:#aaa; padding:20px;">加载中...</div>';
   try {
     const detailRes = await api(`/api/monitors/${mid}/latest-detail`);
-    currentFees = detailRes.fees || currentFees;
-    document.getElementById('detailFees').textContent = `¥${currentFees.total_fee}`;
+    currentFees = detailRes.fees || null;
+    document.getElementById('detailFees').textContent = currentFees ? `¥${currentFees.total_fee}` : '--';
     const flights = detailRes.flights || [];
 
     if (!flights.length || detailRes.stale) {
@@ -604,35 +653,35 @@ async function loadDetail(mid) {
       }
       flightsEl.innerHTML = flights.map(f => {
         const platformClass = f.platform === '飞常准' ? 'tag-variflight' : 'tag-fliggy';
-        const buyUrl = f.link
+        const buyUrl = safeUrl(f.link)
           || (f.platform === '飞常准' ? 'https://www.variflight.com/' : '');
         const altText = (f.alt_platforms && f.alt_platforms.length)
           ? `<div class="flight-alt">同航班其他渠道：${
-              f.alt_platforms.map(a => `${a.platform}¥${a.price}`).join('、')
+              f.alt_platforms.map(a => `${esc(a.platform)}¥${esc(a.price)}`).join('、')
             }</div>` : '';
         return `
         <div class="flight-card">
           <div class="flight-top">
             <div style="flex:1;">
-              <div class="flight-date">${f.date || ''}</div>
+              <div class="flight-date">${esc(f.date || '')}</div>
               <div class="flight-no">
-                ${f.airline || '未知航司'} ${f.flight_no || ''}
-                <span class="tag-platform ${platformClass}">${f.platform}</span>
+                ${esc(f.airline || '未知航司')} ${esc(f.flight_no || '')}
+                <span class="tag-platform ${platformClass}">${esc(f.platform)}</span>
                 ${f.is_direct ? '<span class="tag-direct">直飞</span>' : '<span class="tag-transit">中转</span>'}
               </div>
               <div class="flight-route">
-                ${formatHM(f.dep_time)} ${f.dep_airport || ''} → ${formatHM(f.arr_time)} ${f.arr_airport || ''}
+                ${formatHM(f.dep_time)} ${esc(f.dep_airport || '')} → ${formatHM(f.arr_time)} ${esc(f.arr_airport || '')}
               </div>
-              <div class="flight-bag">${f.baggage_text || '行李额度请以购买页为准'}</div>
+              <div class="flight-bag">${esc(f.baggage_text || '行李额度请以购买页为准')}</div>
               ${altText}
             </div>
             <div class="flight-price-box">
-              <div class="flight-price">¥${f.price}</div>
-              <div class="flight-fee">+机建燃油¥${currentFees.total_fee}</div>
+              <div class="flight-price">¥${esc(f.price)}</div>
+              ${currentFees ? `<div class="flight-fee">+机建燃油¥${currentFees.total_fee}</div>` : ''}
             </div>
           </div>
           <div class="flight-actions">
-            ${buyUrl ? `<a href="${buyUrl}" target="_blank" class="btn btn-primary btn-sm" style="flex:1; text-align:center;">去购买</a>` : ''}
+            ${buyUrl ? `<a href="${esc(buyUrl)}" target="_blank" rel="noopener noreferrer" class="btn btn-primary btn-sm" style="flex:1; text-align:center;">去购买</a>` : ''}
             <button class="btn btn-outline btn-sm" onclick="excludeFlight('${f.flight_no}', '${f.date}')" style="color:#999;">不关注</button>
           </div>
         </div>
@@ -764,20 +813,26 @@ async function saveConditions() {
   const getWin = boxId =>
     Array.from(document.querySelectorAll('#'+boxId+' .tw-chip.active'))
       .map(el => el.dataset.val.split('-').map(Number));
+  const startVal = document.getElementById('editDepStart').value;
+  const endVal = document.getElementById('editDepEnd').value;
+  if (!startVal) return toast('请选择开始日期');
   const body = {
-    departure_date_start: document.getElementById('editDepStart').value,
-    departure_date_end: document.getElementById('editDepEnd').value,
+    departure_date_start: startVal,
+    // 编辑单日任务时允许结束日期留空，统一退化为开始日期，与新建逻辑一致
+    departure_date_end: endVal || startVal,
     direct_only: document.getElementById('editDirect').checked,
     baggage_required: document.getElementById('editBag').checked,
-    max_price: parseInt(document.getElementById('editMaxPrice').value) || null,
+    max_price: parsePrice(document.getElementById('editMaxPrice').value),
     departure_time_windows: getWin('editDepWin'),
     arrival_time_windows: getWin('editArrWin'),
   };
-  if (!body.departure_date_start || !body.departure_date_end) return toast('请选择日期');
-  await api(`/api/monitors/${mid}`, {method:'PUT', body: JSON.stringify(body)});
-  toast('已保存，正在重新采集...');
-  await new Promise(r => setTimeout(r, 4000));
-  await loadDetail(mid);
+  try {
+    await api(`/api/monitors/${mid}`, {method:'PUT', body: JSON.stringify(body)});
+    toast('已保存，后台正在重新采集，结果稍后自动刷新');
+    await loadDetail(mid);
+  } catch(err) {
+    toast('保存失败: ' + err.message);
+  }
 }
 
 function addTw(boxId, startId, endId) {
@@ -822,7 +877,7 @@ async function createMonitor() {
     cabin_class: 'economy',
     direct_only: document.getElementById('directOnly').checked,
     baggage_required: document.getElementById('baggageRequired').checked,
-    max_price: parseInt(document.getElementById('maxPrice').value) || null,
+    max_price: parsePrice(document.getElementById('maxPrice').value),
     departure_time_windows: getWindows('depTimeBoxes'),
     arrival_time_windows: getWindows('arrTimeBoxes'),
   };
@@ -833,16 +888,25 @@ async function createMonitor() {
     const fmt = w => w.map(x => `${x[0]}:00-${x[1]}:00`).join('、');
     toast(`已选时段：出发${fmt(depWin)||'不限'}，到达${fmt(arrWin)||'不限'}`);
   }
-  const newMonitor = await api('/api/monitors', {method:'POST', body: JSON.stringify(body)});
-  toast('监控已开启');
-  if (newMonitor && newMonitor.id) {
-    showDetail(newMonitor.id);
+  try {
+    const newMonitor = await api('/api/monitors', {method:'POST', body: JSON.stringify(body)});
+    toast('监控已开启');
+    if (newMonitor && newMonitor.id) {
+      showDetail(newMonitor.id);
+    }
+  } catch(err) {
+    toast('创建失败: ' + err.message);
   }
 }
 
 async function stopMonitor(id) {
-  await api('/api/monitors/' + id, {method:'DELETE'});
-  toast('已停止监控');
+  try {
+    await api('/api/monitors/' + id, {method:'DELETE'});
+    toast('已停止监控');
+  } catch(err) {
+    toast('停止失败: ' + err.message);
+    return;
+  }
   await loadMonitors();  // 先刷新列表数据（该任务已停止）
   if (isDetailView) {
     history.back();  // 触发 popstate 回到列表
@@ -875,14 +939,14 @@ const CITIES = [
   ["西安","XIY","咸阳"],["昆明","KMG","长水"],["三亚","SYX","凤凰"],
   ["海口","HAK","美兰"],["厦门","XMN","高崎"],["长沙","CSX","黄花"],
   ["青岛","TAO","胶东"],["大连","DLC","周水子"],["哈尔滨","HRB","太平"],
-  ["沈阳","SHE","桃仙"],["郑州","CGO","新郑"],["济南","TNA","遥杆"],
+  ["沈阳","SHE","桃仙"],["郑州","CGO","新郑"],["济南","TNA","遥墙"],
   ["福州","FOC","长乐"],["贵阳","KWE","龙洞堡"],["南宁","NNG","吴圩"],
   ["兰州","LHW","中川"],["乌鲁木齐","URQ","地窝堡"],["拉萨","LXA","贡嘎"],
   ["天津","TSN","滨海"],["太原","TYN","武宿"],["石家庄","SJW","正定"],
   ["呼和浩特","HET","白塔"],["合肥","HFE","新桥"],["南昌","KHN","昌北"],
   ["宁波","NGB","栎社"],["温州","WNZ","龙湾"],["珠海","ZUH","金湾"],
   ["汕头","SWA","揭阳潮汕"],["桂林","KWL","两江"],["丽江","LJG","三义"],
-  ["西双版纳","JHG","嘎洒"],["大理","DLU","荒坝草"],
+  ["西双版纳","JHG","嘎洒"],["大理","DLU","荒草坝"],
   ["泉州","JJQ","晋江"],["烟台","YNT","蓬莱"],["威海","WEH","大水泊"],
   ["唐山","TVS","三女河"],["秦皇岛","BPE","北戴河"],["包头","BAV","二里半"],
   ["鄂尔多斯","DSN","伊金霍洛"],["赤峰","CIF","玉龙"],["通辽","TGO","通辽"],
@@ -891,7 +955,7 @@ const CITIES = [
   ["吉林","JIL","二台子"],["长春","CGQ","龙嘉"],["锦州","JNZ","小岭子"],
   ["盐城","YNZ","南洋"],["徐州","XUZ","观音"],["常州","CZX","奔牛"],
   ["扬州","YTY","泰州"],["南通","NTG","兴东"],["连云港","LYG","白塔埠"],
-  ["宿迁","SQJ","观音机场"],["淮安","HIA","涟水"],["阜阳","FUG","西关"],
+  ["淮安","HIA","涟水"],["阜阳","FUG","西关"],
   ["黄山","TXN","屯溪"],["安庆","AQG","天柱山"],["九江","JIU","庐山"],
   ["赣州","KOW","黄金"],["宜春","YIW","明月山"],["井冈山","JGS","井冈山"],
   ["景德镇","JDZ","罗家"],["宜昌","YIH","三峡"],["襄阳","XFN","刘集"],
@@ -905,7 +969,7 @@ const CITIES = [
   ["泸州","LZO","蓝田"],["宜宾","YBP","五粮液"],["南充","NAO","高坪"],
   ["达州","DAX","河市"],["广元","GYS","盘龙"],["攀枝花","PZI","保安营"],
   ["康定","KGT","康定"],["稻城","DCY","亚丁"],["九寨","JZH","黄龙"],
-  ["甘孜","GZG","格萨尔"],["阿坝","AAT","红原"],
+  ["甘孜","GZG","格萨尔"],["阿坝","ABP","红原"],
   ["遵义","ZYI","新舟"],["铜仁","TEN","凤凰"],["毕节","BFJ","飞雄"],
   ["安顺","AVA","黄果树"],["兴义","ACX","万峰林"],["六盘水","LPF","月照"],
   ["喀什","KHG","喀什"],["伊宁","YIN","伊宁"],["阿克苏","AKU","温宿"],

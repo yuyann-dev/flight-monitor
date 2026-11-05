@@ -82,9 +82,9 @@ def send_price_alert(email: str, monitor_info: dict, flights: list, analysis: di
 
     history_low = monitor_info.get("best_price_ever")
     if is_new_low is None:
-        # 回退：仅当当前价严格小于历史最低才视为新低
+        # 回退：当前价 ≤ 历史最低即视为新低（含打平）
         is_new_low = bool(
-            history_low is not None and analysis["best_price"] < history_low
+            history_low is not None and analysis["best_price"] <= history_low
         )
     new_low_banner = (
         '<p style="margin:5px 0; color:#27ae60; font-weight:bold;">已创监控以来历史新低</p>'

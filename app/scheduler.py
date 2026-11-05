@@ -320,9 +320,10 @@ async def run_single_monitor(mid: int, manual_refresh: bool = False, allow_varif
 
         m.last_checked_at = now
         m.last_success_at = now
-        # 用“更新前”历史最低判断是否新低，避免更新后恒等导致横幅误显
+        # 用“更新前”历史最低判断是否新低；当前价 ≤ 历史最低即视为新低（含打平），
+        # 避免更新后恒等导致横幅误显
         prev_best_price = m.best_price_ever
-        is_new_low = bool(prev_best_price is None or best_price < prev_best_price)
+        is_new_low = bool(prev_best_price is None or best_price <= prev_best_price)
         if not m.best_price_ever or best_price < m.best_price_ever:
             m.best_price_ever = best_price
 

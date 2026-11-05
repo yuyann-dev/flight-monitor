@@ -185,7 +185,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
         <div class="input-group">
           <label>心理价位（裸票价格，不含机建燃油）</label>
           <input type="number" id="maxPrice" placeholder="如 500">
-          <small style="color:#999; font-size:12px;">机建+燃油另算；裸票价达到此心理价位、或行情达到提醒标准时会发邮件，供你参考决策。</small>
+          <small style="color:#999; font-size:12px;">机建+燃油另算；裸票价达到此心理价位、或价格处于偏低位置达到提醒标准时会发邮件，供你参考决策。</small>
         </div>
         <div class="input-group">
           <label>出发时段（点标签选择，或下方输入后直接保存即可）</label>
@@ -225,7 +225,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
       <div style="background:#f8f9fa; padding:12px; border-radius:8px; margin:16px 0; font-size:13px; color:#666;">
         <b>提醒规则（满足任一即发邮件，客观参考、非强制购买建议）：</b><br>
         ① 当前裸票价 ≤ 你设定的心理价位；<br>
-        ② 综合出行时间、价格位置与走势，行情达到提醒标准（即使未到心理价位也会提醒）。<br>
+        ② 综合出行时间、当前价格位置与走势，价格处于偏低位置（即使未到心理价位也会提醒）。<br>
         购票后可在页面停止对应任务，避免继续收到提醒。
       </div>
       <button class="btn btn-primary" onclick="createMonitor()">开始监控</button>
@@ -269,10 +269,10 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
 
       <!-- 购买建议 -->
       <div style="margin-bottom: 24px; padding: 16px; background: #f8f9fa; border-left: 4px solid #3498db; border-radius: 8px;">
-        <div style="font-size: 13px; color: #666; margin-bottom: 8px;">行情参考建议</div>
+        <div style="font-size: 13px; color: #666; margin-bottom: 8px;">购票参考</div>
         <div id="buyAdvice" style="font-size: 16px; font-weight: 600; margin-bottom: 6px; color: #2c3e50;">分析中...</div>
         <div id="buyAdviceReason" style="font-size: 13px; color: #666; line-height: 1.6;"></div>
-        <div style="font-size:12px;color:#999;margin-top:6px;">以上为基于历史价格与行情的统计参考，仅供决策参考，实际价格受节假日、供需等因素影响；邮件提醒不等于强制建议购买。</div>
+        <div style="font-size:12px;color:#999;margin-top:6px;">以上为基于历史价格与走势的统计参考，仅供决策参考，实际价格受节假日、供需等因素影响；邮件提醒不等于强制建议购买。</div>
       </div>
 
       <!-- 价格走势 -->

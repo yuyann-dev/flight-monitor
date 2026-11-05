@@ -119,6 +119,19 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
   .monitor-action { align-self: flex-start; }
   .form-row { flex-direction: column; align-items: flex-start; gap: 8px; }
   .stat-grid { grid-template-columns: repeat(2, 1fr) !important; }
+  /* 管理员面板移动端：顶栏紧凑折行、面板头折行、表格紧凑并在容器内横向滑动，避免撑破视口 */
+  .app-header .user-info { flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+  #userEmail { font-size: 12px; max-width: 132px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .app-header .user-info button { margin-left: 6px !important; padding: 5px 10px; }
+  #adminBtn { margin-left: 0 !important; }
+  #adminCard .admin-head { flex-wrap: wrap; gap: 8px; }
+  #adminUserList { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .admin-table { min-width: 540px; font-size: 13px; }
+  .admin-table th, .admin-table td { white-space: normal; padding: 8px 6px; }
+  .admin-table td.email-cell { min-width: 0; }
+  .admin-actions { flex-wrap: wrap; justify-content: flex-start; gap: 6px; }
+  #adminUserList .utask-row td > div { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  #adminUserList .utask-row table { min-width: 600px; }
 }
 </style>
 </head>
@@ -161,7 +174,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
 
     <!-- 用户管理折叠面板（仅主人；由顶部“用户管理”按钮展开/收起） -->
     <div class="card hidden" id="adminCard" style="margin-top:16px; border-left:3px solid #8e44ad;">
-      <div style="display:flex; justify-content:space-between; align-items:center; gap:12px;">
+      <div class="admin-head" style="display:flex; justify-content:space-between; align-items:center; gap:12px;">
         <h2 style="margin:0; font-size:16px;">用户管理 <small style="font-size:12px;color:#999;font-weight:normal;">仅管理员可见 · 切换普通用户 / VIP 待遇</small></h2>
         <button class="btn btn-outline btn-sm" onclick="toggleAdminPanel()">收起</button>
       </div>

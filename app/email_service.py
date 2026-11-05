@@ -168,7 +168,8 @@ def send_price_alert(email: str, monitor_info: dict, flights: list, analysis: di
         <b>温馨提示：</b><br>
         1. 机票价格实时变动，若符合预期请结合预算尽早安排；<br>
         2. 不同航司行李额度不同，下单前请在购买页确认；<br>
-        3. 如已购票，可在监控页面停止该任务。
+        3. 如已购票，可在监控页面停止该任务；<br>
+        4. 机建燃油为参考价格，具体请以购票结算页实际收取金额为准。
       </div>
 
       <p style="color:#999; font-size:12px; margin-top:20px;">

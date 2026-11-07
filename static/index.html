@@ -859,6 +859,73 @@ async function loadDetail(mid) {
 
 function toggleChip(el) { el.classList.toggle('active'); }
 
+// ── 时段输入保护：保存前统一校验，避免用户未点“+添加”导致条件被静默丢弃 ──
+// 返回 {state:'empty'|'ok'|'invalid', s, e, msg}
+function parseWindowInput(sId, eId, label) {
+  const sEl = document.getElementById(sId);
+  const eEl = document.getElementById(eId);
+  if (!sEl || !eEl) return { state: 'invalid', msg: '时段输入框缺失' };
+  const sRaw = (sEl.value ?? '').trim();
+  const eRaw = (eEl.value ?? '').trim();
+  if (!sRaw && !eRaw) return { state: 'empty' };
+  if (!sRaw || !eRaw) return { state: 'invalid', msg: `请把${label}时段的起点和终点都填完整，例如 7-10` };
+  const s = parseInt(sRaw, 10);
+  const e = parseInt(eRaw, 10);
+  if (Number.isNaN(s) || Number.isNaN(e) || s < 0 || e > 24 || s >= e) {
+    return { state: 'invalid', msg: `${label}时段无效：需满足 0 ≤ 起点 < 终点 ≤ 24，例如 7-10` };
+  }
+  return { state: 'ok', s, e };
+}
+
+// 合法且未重复则追加为已选（active）标签；返回 true 表示新增
+function appendWindowChip(boxId, s, e) {
+  const box = document.getElementById(boxId);
+  if (!box) return false;
+  const val = s + '-' + e;
+  const exists = Array.from(box.querySelectorAll('.tw-chip')).some(c => c.dataset.val === val);
+  if (exists) return false;
+  const chip = document.createElement('button');
+  chip.type = 'button';
+  chip.className = 'tw-chip active';
+  chip.dataset.val = val;
+  chip.innerHTML = `${s}:00-${e}:00 <button type="button" class="x" onclick="this.parentElement.remove()">×</button>`;
+  box.appendChild(chip);
+  return true;
+}
+
+// 保存前兜底收集一个输入框：合法自动收入，非法返回提示文案，否则返回 null
+function collectWindowOnSave(boxId, sId, eId, label) {
+  const r = parseWindowInput(sId, eId, label);
+  if (r.state === 'invalid') return r.msg;
+  if (r.state === 'ok') {
+    appendWindowChip(boxId, r.s, r.e);
+    document.getElementById(sId).value = '';
+    document.getElementById(eId).value = '';
+  }
+  return null;
+}
+
+// 新建成功后清空表单，避免上一次的时段/城市残留被带入下一次
+function resetNewForm() {
+  ['depCity', 'arrCity', 'depDateStart', 'depDateEnd', 'maxPrice'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.value = '';
+  });
+  ['directOnly', 'baggageRequired'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.checked = false;
+  });
+  ['depTwStart', 'depTwEnd', 'arrTwStart', 'arrTwEnd'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.value = '';
+  });
+  ['depTimeBoxes', 'arrTimeBoxes'].forEach(boxId => {
+    const box = document.getElementById(boxId);
+    if (!box) return;
+    box.querySelectorAll('.tw-chip').forEach(c => {
+      if (c.querySelector('.x')) c.remove();      // 移除动态自定义标签
+      else c.classList.remove('active');        // 预设标签仅取消选中
+    });
+  });
+}
+
 const WINDOW_PRESETS = [[0,6],[6,12],[12,18],[18,24]];
 function winLabel(a,b){
   if(a===0&&b===6) return '凌晨(0:00-6:00)';
@@ -960,18 +1027,11 @@ function addEditTw(boxId, startId, endId) {
 
 async function saveConditions() {
   const mid = currentMonitorId;
-  // 保存前自动把输入框里未点"添加"的有效时段收进去
-  const flushInput = (boxId, startId, endId) => {
-    const s = parseInt(document.getElementById(startId).value);
-    const e = parseInt(document.getElementById(endId).value);
-    if (!isNaN(s) && !isNaN(e) && s >= 0 && e <= 24 && s < e) {
-      const box = document.getElementById(boxId);
-      const exists = Array.from(box.querySelectorAll('.tw-chip')).some(c => c.dataset.val === s + '-' + e);
-      if (!exists) addEditTw(boxId, startId, endId);
-    }
-  };
-  flushInput('editDepWin', 'editDepS', 'editDepE');
-  flushInput('editArrWin', 'editArrS', 'editArrE');
+  // 保存前兜底：未点“+添加”的合法时段自动收入；起止缺失/非法则提示并阻止提交
+  const depErr = collectWindowOnSave('editDepWin', 'editDepS', 'editDepE', '出发');
+  if (depErr) return toast(depErr);
+  const arrErr = collectWindowOnSave('editArrWin', 'editArrS', 'editArrE', '到达');
+  if (arrErr) return toast(arrErr);
   const getWin = boxId =>
     Array.from(document.querySelectorAll('#'+boxId+' .tw-chip.active'))
       .map(el => el.dataset.val.split('-').map(Number));
@@ -1012,28 +1072,27 @@ function addTw(boxId, startId, endId) {
 }
 
 async function createMonitor() {
-  // 保存前自动收集输入框里未点“+添加”的有效时段，避免用户漏点
-  const flushNew = (boxId, sId, eId) => {
-    const s = parseInt(document.getElementById(sId).value);
-    const e = parseInt(document.getElementById(eId).value);
-    if (!isNaN(s) && !isNaN(e) && s >= 0 && e <= 24 && s < e) {
-      const box = document.getElementById(boxId);
-      const exists = Array.from(box.querySelectorAll('.tw-chip')).some(c => c.dataset.val === s + '-' + e);
-      if (!exists) addTw(boxId, sId, eId);
-    }
-  };
-  flushNew('depTimeBoxes', 'depTwStart', 'depTwEnd');
-  flushNew('arrTimeBoxes', 'arrTwStart', 'arrTwEnd');
+  const start = document.getElementById('depDateStart').value;
+  const end = document.getElementById('depDateEnd').value;
+  const depCity = document.getElementById('depCity').value.trim();
+  const arrCity = document.getElementById('arrCity').value.trim();
+  // 必填项先校验，再做时段兜底，避免次要错误先弹出
+  if (!depCity || !arrCity || !start) return toast('请填写城市和日期');
+  if (depCity === arrCity) return toast('出发城市和到达城市不能相同');
+
+  // 保存前兜底：未点“+添加”的合法时段自动收入；起止缺失/格式非法则提示并阻止提交，不静默丢弃
+  const depErr = collectWindowOnSave('depTimeBoxes', 'depTwStart', 'depTwEnd', '出发');
+  if (depErr) return toast(depErr);
+  const arrErr = collectWindowOnSave('arrTimeBoxes', 'arrTwStart', 'arrTwEnd', '到达');
+  if (arrErr) return toast(arrErr);
 
   const getWindows = boxId =>
     Array.from(document.querySelectorAll('#' + boxId + ' .tw-chip.active'))
       .map(el => el.dataset.val.split('-').map(Number));
 
-  const start = document.getElementById('depDateStart').value;
-  const end = document.getElementById('depDateEnd').value;
   const body = {
-    departure_city: document.getElementById('depCity').value.trim(),
-    arrival_city: document.getElementById('arrCity').value.trim(),
+    departure_city: depCity,
+    arrival_city: arrCity,
     departure_date_start: start,
     departure_date_end: end || start,  // 前端也保证空 end 退化为单日
     cabin_class: 'economy',
@@ -1043,8 +1102,6 @@ async function createMonitor() {
     departure_time_windows: getWindows('depTimeBoxes'),
     arrival_time_windows: getWindows('arrTimeBoxes'),
   };
-  if (!body.departure_city || !body.arrival_city || !body.departure_date_start) return toast('请填写城市和日期');
-  if (body.departure_city === body.arrival_city) return toast('出发城市和到达城市不能相同');
   const depWin = body.departure_time_windows, arrWin = body.arrival_time_windows;
   if (depWin.length || arrWin.length) {
     const fmt = w => w.map(x => `${x[0]}:00-${x[1]}:00`).join('、');
@@ -1052,6 +1109,7 @@ async function createMonitor() {
   }
   try {
     const newMonitor = await api('/api/monitors', {method:'POST', body: JSON.stringify(body)});
+    resetNewForm();
     toast('监控已开启');
     if (newMonitor && newMonitor.id) {
       showDetail(newMonitor.id);
